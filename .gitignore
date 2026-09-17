@@ -1,24 +1,45 @@
-# Credenciais e variáveis de ambiente
-.env
-*.env
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# PDFs e arquivos processados
-folhas/
-entrada/
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
-# Relatórios gerados
-relatorio_envios.xlsx
-relatorio_ocr.xlsx
-relatorio_erros.xlsx
+# testing
+/coverage
 
-# Arquivos temporários do Python
-__pycache__/
-*.pyc
+# next.js
+/.next/
+/.vinext/
+/out/
 
-# Ambiente virtual
-venv/
-.venv/
-
-# Arquivos do sistema
+# misc
 .DS_Store
-Thumbs.db
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+/dist/
+/.wrangler/
+# Checkout-local execution profile and tool state; never publish them.
+/.sites-runtime/
+/outputs/
+/work/
