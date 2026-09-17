@@ -7,15 +7,9 @@ from email.message import EmailMessage
 import pandas as pd
 
 
-EMAIL_REMETENTE = os.getenv("DIGEP_EMAIL")
-SENHA_APP = os.getenv("DIGEP_SENHA_APP")
-
-# Enquanto estivermos testando:
-# todos os e-mails serão enviados para a própria conta DIGEP.
-TESTE_EMAIL = os.getenv(
-    "DIGEP_MODO_TESTE",
-    "true"
-).lower() == "true"
+# ============================================================
+# FUNÇÕES AUXILIARES
+# ============================================================
 
 def email_valido(email):
     if pd.isna(email):
@@ -31,7 +25,64 @@ def email_valido(email):
     return re.match(padrao, email) is not None
 
 
-def preparar_email(nome, destinatario, arquivo_pdf):
+def normalizar_matricula(valor):
+    """
+    Evita casos como 67890.0 quando a matrícula
+    é lida pelo Excel como número.
+    """
+
+    if pd.isna(valor):
+        return ""
+
+    valor = str(valor).strip()
+
+    if valor.endswith(".0"):
+        valor = valor[:-2]
+
+    return valor
+
+
+def carregar_configuracao_email():
+    """
+    Busca as configurações do Gmail nas
+    variáveis de ambiente.
+    """
+
+    email_remetente = os.getenv("DIGEP_EMAIL")
+    senha_app = os.getenv("DIGEP_SENHA_APP")
+
+    modo_teste = os.getenv(
+        "DIGEP_MODO_TESTE",
+        "true"
+    ).lower() == "true"
+
+    if not email_remetente:
+        raise RuntimeError(
+            "Variável DIGEP_EMAIL não configurada."
+        )
+
+    if not senha_app:
+        raise RuntimeError(
+            "Variável DIGEP_SENHA_APP não configurada."
+        )
+
+    return (
+        email_remetente,
+        senha_app,
+        modo_teste
+    )
+
+
+# ============================================================
+# PREPARAÇÃO DO E-MAIL
+# ============================================================
+
+def preparar_email(
+    nome,
+    destinatario,
+    arquivo_pdf,
+    email_remetente
+):
     if not email_valido(destinatario):
         return (
             None,
@@ -44,7 +95,7 @@ def preparar_email(nome, destinatario, arquivo_pdf):
     mensagem = EmailMessage()
 
     mensagem["Subject"] = "Folha de ponto - DIGEP"
-    mensagem["From"] = EMAIL_REMETENTE
+    mensagem["From"] = email_remetente
     mensagem["To"] = destinatario
 
     mensagem.set_content(
@@ -65,7 +116,11 @@ def preparar_email(nome, destinatario, arquivo_pdf):
             filename=os.path.basename(arquivo_pdf)
         )
 
-        return mensagem, "PENDENTE", ""
+        return (
+            mensagem,
+            "PENDENTE",
+            ""
+        )
 
     except FileNotFoundError:
         return (
@@ -75,7 +130,15 @@ def preparar_email(nome, destinatario, arquivo_pdf):
         )
 
 
-def enviar_email(mensagem):
+# ============================================================
+# ENVIO SMTP
+# ============================================================
+
+def enviar_email(
+    mensagem,
+    email_remetente,
+    senha_app
+):
     try:
         with smtplib.SMTP_SSL(
             "smtp.gmail.com",
@@ -84,11 +147,13 @@ def enviar_email(mensagem):
         ) as servidor:
 
             servidor.login(
-                EMAIL_REMETENTE,
-                SENHA_APP
+                email_remetente,
+                senha_app
             )
 
-            servidor.send_message(mensagem)
+            servidor.send_message(
+                mensagem
+            )
 
         return (
             "ENVIADO",
@@ -104,41 +169,74 @@ def enviar_email(mensagem):
         )
 
 
-# Verifica se as credenciais existem
-if not EMAIL_REMETENTE or not SENHA_APP:
-    print(
-        "ERRO: DIGEP_EMAIL ou DIGEP_SENHA_APP "
-        "não foram configurados."
+# ============================================================
+# PROCESSAMENTO DOS SERVIDORES
+# ============================================================
+
+def processar_envios(
+    caminho_planilha="servidores_acumuladores.xlsx",
+    pasta_folhas="folhas",
+    caminho_relatorio="relatorio_envios.xlsx"
+):
+    email_remetente, senha_app, modo_teste = (
+        carregar_configuracao_email()
     )
 
-    raise SystemExit(1)
+    if not os.path.exists(caminho_planilha):
+        raise FileNotFoundError(
+            f"Planilha não encontrada: {caminho_planilha}"
+        )
 
-
-try:
     planilha = pd.read_excel(
-        "servidores_acumuladores.xlsx"
+        caminho_planilha
     )
+
+    colunas_obrigatorias = {
+        "nome",
+        "email_pessoal",
+        "matricula"
+    }
+
+    colunas_faltantes = (
+        colunas_obrigatorias
+        - set(planilha.columns)
+    )
+
+    if colunas_faltantes:
+        raise ValueError(
+            "Colunas obrigatórias faltando: "
+            + ", ".join(sorted(colunas_faltantes))
+        )
 
     print("\nPROCESSAMENTO DOS SERVIDORES")
     print("=" * 60)
 
-    resultados = []
+    if modo_teste:
+        print(
+            "MODO DE TESTE ATIVADO"
+        )
 
-    quantidade_pendente = 0
-    quantidade_enviado = 0
-    quantidade_erro = 0
+        print(
+            "Os e-mails serão redirecionados para:",
+            email_remetente
+        )
+
+    resultados = []
 
     for indice, servidor in planilha.iterrows():
 
         nome = servidor["nome"]
-        email = servidor["email_pessoal"]
 
-        matricula = str(
+        email = servidor[
+            "email_pessoal"
+        ]
+
+        matricula = normalizar_matricula(
             servidor["matricula"]
-        ).strip()
+        )
 
         arquivo_pdf = os.path.join(
-            "folhas",
+            pasta_folhas,
             f"folha_{matricula}.pdf"
         )
 
@@ -150,38 +248,52 @@ try:
         mensagem, status, erro = preparar_email(
             nome,
             email,
-            arquivo_pdf
+            arquivo_pdf,
+            email_remetente
         )
 
         data_envio = None
 
-        # Só tenta enviar se o e-mail foi preparado corretamente
-        if status == "PENDENTE" and mensagem is not None:
+        # ----------------------------------------------------
+        # Só tenta enviar se a preparação estiver correta
+        # ----------------------------------------------------
 
-            # SEGURANÇA PARA O TESTE:
-            # manda para nossa própria conta.
-            if TESTE_EMAIL:
+        if (
+            status == "PENDENTE"
+            and mensagem is not None
+        ):
+
+            if modo_teste:
+
                 mensagem.replace_header(
                     "To",
-                    EMAIL_REMETENTE
+                    email_remetente
                 )
 
                 print(
                     "Modo de teste: enviando para:",
-                    EMAIL_REMETENTE
+                    email_remetente
                 )
 
             status, erro, data_envio = enviar_email(
-                mensagem
+                mensagem,
+                email_remetente,
+                senha_app
             )
 
         print("Status:", status)
 
         if data_envio:
-            print("Data do envio:", data_envio)
+            print(
+                "Data do envio:",
+                data_envio
+            )
 
         if erro:
-            print("Motivo:", erro)
+            print(
+                "Motivo:",
+                erro
+            )
 
         resultados.append({
             "matricula": matricula,
@@ -193,44 +305,88 @@ try:
             "mensagem_erro": erro
         })
 
-        if status == "PENDENTE":
-            quantidade_pendente += 1
+    # ========================================================
+    # RELATÓRIO
+    # ========================================================
 
-        elif status == "ENVIADO":
-            quantidade_enviado += 1
-
-        elif status == "ERRO":
-            quantidade_erro += 1
-
-
-    relatorio = pd.DataFrame(resultados)
+    relatorio = pd.DataFrame(
+        resultados
+    )
 
     relatorio.to_excel(
-        "relatorio_envios.xlsx",
+        caminho_relatorio,
         index=False
     )
+
+    if relatorio.empty:
+        quantidade_pendente = 0
+        quantidade_enviado = 0
+        quantidade_erro = 0
+
+    else:
+        quantidade_pendente = (
+            relatorio["status"]
+            .eq("PENDENTE")
+            .sum()
+        )
+
+        quantidade_enviado = (
+            relatorio["status"]
+            .eq("ENVIADO")
+            .sum()
+        )
+
+        quantidade_erro = (
+            relatorio["status"]
+            .eq("ERRO")
+            .sum()
+        )
 
     print("\n" + "=" * 60)
     print("RESUMO")
     print("=" * 60)
 
-    print("Pendentes:", quantidade_pendente)
-    print("Enviados:", quantidade_enviado)
-    print("Erros:", quantidade_erro)
-
     print(
-        "\nRelatório criado: "
-        "relatorio_envios.xlsx"
+        "Pendentes:",
+        quantidade_pendente
     )
 
-    print("\nPROCESSAMENTO CONCLUÍDO.")
-
-
-except FileNotFoundError:
-
     print(
-        "ERRO: arquivo servidores_acumuladores.xlsx "
-        "não encontrado."
+        "Enviados:",
+        quantidade_enviado
     )
 
+    print(
+        "Erros:",
+        quantidade_erro
+    )
 
+    print(
+        "\nRelatório criado:",
+        caminho_relatorio
+    )
+
+    print(
+        "\nPROCESSAMENTO CONCLUÍDO."
+    )
+
+    return relatorio
+
+
+# ============================================================
+# EXECUÇÃO DIRETA
+# ============================================================
+
+def main():
+    try:
+        processar_envios()
+
+    except Exception as erro:
+        print("\nERRO NO PROCESSAMENTO")
+        print("Motivo:", erro)
+
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()
