@@ -1,0 +1,24 @@
+# Credenciais e variáveis de ambiente
+.env
+*.env
+
+# PDFs e arquivos processados
+folhas/
+entrada/
+
+# Relatórios gerados
+relatorio_envios.xlsx
+relatorio_ocr.xlsx
+relatorio_erros.xlsx
+
+# Arquivos temporários do Python
+__pycache__/
+*.pyc
+
+# Ambiente virtual
+venv/
+.venv/
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
