@@ -12,8 +12,10 @@ SENHA_APP = os.getenv("DIGEP_SENHA_APP")
 
 # Enquanto estivermos testando:
 # todos os e-mails serão enviados para a própria conta DIGEP.
-TESTE_EMAIL = True
-
+TESTE_EMAIL = os.getenv(
+    "DIGEP_MODO_TESTE",
+    "true"
+).lower() == "true"
 
 def email_valido(email):
     if pd.isna(email):
