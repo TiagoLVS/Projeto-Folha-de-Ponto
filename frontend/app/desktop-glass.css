@@ -1,0 +1,108 @@
+/* Desktop workspace, with frosted Control Center surfaces. */
+/* Shared layout scales to a desktop canvas up to 1440px. */
+:root {
+  --glass: rgba(255, 255, 255, .48);
+  --glass-border: rgba(255, 255, 255, .65);
+  --glass-shadow: 0 16px 48px #163e6920, inset 0 1px 1px #ffffffcf, inset 0 -1px 1px #ffffff40;
+}
+body { background: #a5cce5; }
+body::before {
+  background: radial-gradient(ellipse at 8% 10%, #d2f5fa 0, transparent 42%), radial-gradient(ellipse at 95% 12%, #3278bba6 0, transparent 48%), radial-gradient(ellipse at 10% 95%, #7dbec5 0, transparent 45%), linear-gradient(145deg, #b0d8ed, #91b9dd 55%, #b8d7ed);
+}
+.app-shell { padding: 28px 36px 0; max-width: 1640px; margin: auto; }
+.floating-nav {
+  max-width: 1568px; min-height: 102px; padding: 10px 22px 10px 10px;
+  border-radius: 36px; gap: 24px;
+  background: linear-gradient(120deg,#ffffff63,#ffffff21 55%,#ffffff45);
+  border: 1px solid #ffffff99;
+  backdrop-filter: blur(38px) saturate(180%); -webkit-backdrop-filter: blur(38px) saturate(180%);
+  box-shadow: 0 20px 50px #153c6321, inset 0 1px 1px #ffffffe6, inset 0 -1px 1px #ffffff50;
+}
+.nav-brand .undf-logo { width: 125px; height: 78px; }
+.nav-brand strong { font-size: 17px; letter-spacing: -.5px; }
+.nav-brand small { font-size: 12px; color: #385b77; }
+.nav-segments { padding: 0; gap: 10px; background: transparent; border: 0; }
+.nav-segments button {
+  min-height: 76px; min-width: 145px; padding: 12px 22px; flex-direction: column; gap: 6px;
+  border-radius: 25px; border: 1px solid #ffffff70;
+  background: linear-gradient(140deg,#ffffff60,#ffffff24); color: #284f72;
+  box-shadow: inset 0 1px 1px #ffffffb3,0 4px 12px #1948770d;
+  transition: background .2s, transform .2s, box-shadow .2s;
+}
+.nav-segments button svg { width: 22px; height: 22px; }
+.nav-segments button:hover { transform: translateY(-2px); background: #ffffff85; }
+.nav-segments button[aria-current=page] {
+  background: linear-gradient(145deg,#ffffffdc,#ffffff80); color: #1f5fa4;
+  box-shadow: 0 8px 20px #235d9720,inset 0 1px 2px #fff; border-color: #ffffffed;
+}
+.nav-segments button[aria-current=page] svg { filter: drop-shadow(0 2px 3px #2468b326); }
+.nav-account { background: #ffffff30; border: 1px solid #ffffff70; border-radius: 99px; padding: 6px 7px 6px 15px; color: #345873; }
+.nav-account .avatar { background: #ffffff9c; width: 44px; height: 44px; }
+.account-dot { display: none; }
+.app-main { max-width: 1510px; }
+.topbar { height: 72px; padding: 0 10px; }
+.breadcrumb,.topbar-right { color: #365b79; }
+.breadcrumb strong { color: #234a6c; }
+.workspace { padding: 14px 10px 32px; }
+.page-heading { margin-bottom: 26px; }
+.page-heading h1,.profile-heading h1 { font-size: clamp(32px,2.8vw,44px); color: #183e60; }
+.page-heading p:not(.eyebrow),.profile-heading p:not(.eyebrow) { color: #3f6380; }
+.eyebrow { color: #3b6284!important; }
+.stats { gap: 20px; }
+.stat { border-radius: 30px; background: linear-gradient(135deg,#ffffff83,#ffffff42); min-height: 170px; padding: 25px 27px; backdrop-filter: blur(28px) saturate(150%); -webkit-backdrop-filter: blur(28px) saturate(150%); }
+.stat p,.stat span,.stat strong small { color: #3c617e; }
+.stat-icon,.stat-icon.soft,.stat-icon.neutral { border-radius: 50%; width: 54px; height: 54px; background: #ffffff85; box-shadow: inset 0 1px #fff,0 7px 17px #275f9220; }
+.stat strong { color: #1d4769; }
+.table-card { background: #ffffffa6; border-radius: 30px; backdrop-filter: blur(32px) saturate(150%); -webkit-backdrop-filter: blur(32px) saturate(150%); }
+.table-toolbar { background: #ffffff18; padding: 22px 25px; }
+.table-toolbar select,.search-field,.month-control { background: #ffffff57; box-shadow: inset 0 1px #ffffffb3; border-color: #ffffffad; }
+.month-control { backdrop-filter: blur(22px); }
+.search-field input::placeholder { color: #506f88; }
+th { background: #c8dfef40; color: #496c86; }
+td { height: 78px; }
+.professor-cell strong { font-size: 15px!important; }
+.professor-cell small,.registration,.result-count,.table-footer,.workspace-footer { color: #4d6d85; }
+.pending-alert { background: #fff4d1a1; border-radius: 22px; backdrop-filter: blur(24px); }
+.notification { background: #ffffff4d; box-shadow: inset 0 1px #ffffffb3; height: 42px; width: 42px; }
+.icon-button { background: #ffffff38; }
+[data-slot=button][data-variant=default] { background: linear-gradient(150deg,#438fd0d9,#2166aeea); border: 1px solid #ffffff70; box-shadow: inset 0 1px #ffffff6b,0 8px 20px #2468b330; backdrop-filter: blur(18px); }
+.edit-sheet,.send-dialog { background: #dfedf7d9!important; backdrop-filter: blur(45px) saturate(165%); -webkit-backdrop-filter: blur(45px) saturate(165%); }
+@media (min-width: 860px) {
+  .page-heading { flex-wrap: nowrap; align-items: center; }
+  .heading-actions { width: auto; }
+  .stats { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .stat strong small { display: inline; }
+}
+@media (min-width: 860px) and (max-width: 1150px) {
+  .app-shell { padding: 22px 22px 0; }
+  .floating-nav { gap: 14px; padding-right: 15px; }
+  .nav-brand .undf-logo { width: 105px; }
+  .nav-brand strong { font-size: 15px; }
+  .nav-segments button { min-width: 125px; padding: 11px 15px; }
+  .nav-account > span:not(.avatar) { display: none; }
+  .nav-account { padding: 6px; }
+  .heading-actions { gap: 8px; }
+  .heading-actions [data-slot=button] { padding: 10px 15px; }
+  .stat { padding: 23px 21px; }
+  .stat-icon,.stat-icon.soft,.stat-icon.neutral { width: 45px; height: 45px; }
+  .page-heading h1 { font-size: 34px; }
+}
+@media (max-width: 859px) {
+  .app-shell { padding: 16px 16px 0; }
+  .floating-nav { flex-wrap: wrap; padding: 8px 12px 12px; gap: 10px; }
+  .nav-brand { order: 0; }
+  .nav-account { order: 1; margin-left: auto; padding: 5px; }
+  .nav-account > span:not(.avatar) { display: none; }
+  .nav-segments { order: 2; width: 100%; }
+  .nav-segments button { flex: 1; min-width: 0; min-height: 68px; }
+  .nav-brand .undf-logo { width: 95px; height: 65px; }
+  .nav-brand strong { font-size: 15px; }
+  .page-heading { flex-wrap: wrap; }
+  .stat-icon,.stat-icon.soft,.stat-icon.neutral { width: 44px; height: 44px; }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .floating-nav,.stat,.table-card,.sheet-summary { background: #e7f0f8; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-segments button:hover { transform: none; }
+}
