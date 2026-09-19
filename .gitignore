@@ -7,11 +7,15 @@ frontend/node_modules/
 dist/
 .vite/
 
+.sites-runtime/
+.pnpm-store/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.log
 
 # =========================
 # Variáveis de ambiente
@@ -33,21 +37,32 @@ __pycache__/
 venv/
 .venv/
 
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+*.egg-info/
+build/
+
+# =========================
+# Dados gerados pelo sistema
+# =========================
+data/saida/
+data/folhas/
+
 # =========================
 # IDE / Sistema
 # =========================
 .vscode/
 .idea/
+
 .DS_Store
 Thumbs.db
 
-# =========================
-# Arquivos gerados
-# =========================
-data/saida/
+*.swp
+*~
 
 # =========================
 # Cache
 # =========================
-*.log
 .cache/
