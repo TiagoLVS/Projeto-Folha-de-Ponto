@@ -5,7 +5,6 @@ export async function processDocument(
   sheet: Sheet,
   signal: AbortSignal
 ): Promise<IdentifiedTimesheetData> {
-
   const blob = await (await fetch(sheet.attachment.url)).blob();
 
   const body = new FormData();
