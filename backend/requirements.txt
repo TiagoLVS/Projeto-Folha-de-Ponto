@@ -1,0 +1,10 @@
+psycopg[binary]
+python-dotenv
+fastapi
+uvicorn[standard]
+python-multipart
+pytesseract
+PyMuPDF
+Pillow
+pandas
+openpyxl
