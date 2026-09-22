@@ -8,3 +8,4 @@ PyMuPDF
 Pillow
 pandas
 openpyxl
+httpx2
