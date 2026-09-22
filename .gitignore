@@ -72,3 +72,8 @@ Thumbs.db
 frontend/.next/
 frontend/.turbo/
 frontend/tsconfig.tsbuildinfo
+
+# Relatórios e estado local de desenvolvimento
+/relatorio_erros.xlsx
+/frontend/.wrangler/
+/frontend/.vinext/

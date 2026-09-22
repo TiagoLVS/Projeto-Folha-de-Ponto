@@ -1,54 +1,42 @@
-# Envio de folhas em lote — contrato de integração
+# Envio síncrono de folhas
 
-## Fluxo
+`POST /api/timesheets/send` encaminha o lote para `POST /folhas/enviar-lote`. O backend consulta as folhas no PostgreSQL, envia cada mensagem por SMTP e registra o resultado em `envio`. Não existe fila nem processamento em segundo plano implementado.
 
-Abra “Enviar folhas do mês”, selecione os destinatários e clique uma vez em “Enviar todas (8)”. Uma única requisição solicita o lote; o backend processa os oito e-mails separadamente, cada um com a folha correta. A interface não usa `mailto:`.
+## Contrato
 
-O backend consulta folhas e destinatários no PostgreSQL, envia mensagens individuais por SMTP e registra cada resultado em `envio`. A resposta `queued` representa a aceitação do lote; o envio atual é processado durante a requisição.
-
-## Requisição
-
-`POST /api/timesheets/send`, na mesma origem. A rota do frontend encaminha a requisição para `POST /folhas/enviar-lote` no backend.
-
-```http
-Content-Type: application/json
-Idempotency-Key: <UUID gerado no navegador>
-```
+O header `Idempotency-Key` é obrigatório (1 a 255 caracteres). O corpo contém IDs reais de professores, sem duplicatas:
 
 ```json
-{
-  "month": "2026-09",
-  "professorIds": ["id-do-professor-1", "id-do-professor-2"]
-}
+{"month":"2026-09","professorIds":["1","2"]}
 ```
 
-Os identificadores devem corresponder aos registros reais da API. Integre a carga e o salvamento das edições do painel antes do envio: os dados locais de exemplo e suas alterações em memória NÃO são enviados para o backend.
-
-## Resposta após aceitação atômica de todo o lote
-
-HTTP `202`, JSON:
+Sucesso: HTTP 200, após todas as mensagens serem aceitas pelo serviço de e-mail:
 
 ```json
-{
-  "jobId": "lote-123",
-  "status": "queued",
-  "acceptedCount": 2
-}
+{"jobId":"chave-do-lote","status":"completed","sentCount":2}
 ```
 
-`acceptedCount` deve corresponder ao número solicitado. “Na fila” significa aceitação para processamento, não entrega na caixa de entrada. Requisições rejeitadas devem retornar erro HTTP sem criar um lote parcial.
+`jobId` identifica a requisição; não representa um job em fila. A resposta não comprova entrega na caixa de entrada do destinatário.
 
-## Responsabilidades do backend
+## Idempotência
 
-- Exigir sessão autorizada, validar origem/CSRF, competência e acesso a TODOS os IDs. Recusar IDs desconhecidos ou repetidos antes de enfileirar.
-- Buscar e-mails e folhas nos registros autorizados; nunca confiar em destinatários ou HTML arbitrários enviados pelo navegador.
-- Persistir o lote e a chave de idempotência com unicidade por organização/usuário. Mesma chave e mesmo conteúdo retornam o mesmo recibo; conteúdo diferente deve retornar `409`.
-- A chave é reutilizada pelo front para a mesma competência e conjunto de IDs durante a sessão, inclusive após timeout. O servidor também deve impedir duplicações entre recarregamentos e abas, com deduplicação por destinatário, competência e versão da folha.
-- Criar um snapshot das folhas ao aceitar o lote. Gerar PDF ou HTML e enviar uma mensagem separada com apenas o anexo do destinatário. Nunca colocar todas as folhas em um e-mail coletivo.
-- Usar fila persistente e tentativas controladas por mensagem; registrar falhas e a confirmação do provedor sem reenviar as mensagens já aceitas. Guardar credenciais de e-mail exclusivamente no servidor.
+A tabela `idempotency_request` reserva a chave antes do envio. Uma restrição única garante que apenas uma requisição com essa chave inicia o lote, inclusive entre processos concorrentes.
 
-## Erros e interface
+- Mesma chave e conteúdo: retorna a resposta e o código HTTP armazenados, sem reenviar.
+- Mesmos IDs em ordem diferente: são o mesmo conteúdo.
+- Mesma chave e conteúdo diferente: HTTP 409.
+- Lote ainda em processamento: HTTP 409; consultar novamente com a mesma chave.
+- Chave ausente, IDs/competência inválidos: HTTP 422 antes de reservar o lote.
+- Falha durante o lote: guarda o erro; repetir a chave não reenvia os e-mails que já podem ter sido enviados.
 
-O cliente diferencia ausência de integração (`404/405/501`), acesso negado (`401/403`), erro do serviço, resposta inválida e timeout de 20 segundos. Ao falhar, exibe “Tentar novamente” e conserva a chave do lote. O botão fica bloqueado enquanto há uma solicitação em andamento.
+O frontend conserva a chave durante a tentativa e, quando sessionStorage está disponível, após recarregar a mesma aba. O timeout de 20 segundos cancela a espera do navegador, mas não significa que o backend deixou de enviar. “Tentar novamente” reutiliza a chave.
 
-O envio individual na tela do professor usa o mesmo fluxo com um único ID. Acompanhamento da entrega após a fila é uma integração adicional; este front confirma somente a aceitação do lote.
+Envios SMTP não são uma transação com o PostgreSQL. Um lote pode ter sucesso parcial. Se o processo cair depois de enviar e antes de salvar o resultado, a chave pode permanecer `PROCESSANDO`; é preciso conferir o histórico antes de decidir qualquer reenvio. O sistema não retoma automaticamente lotes interrompidos nem impede duplicação feita com **outra chave** (por exemplo, em outra aba).
+
+Bancos anteriores precisam de `database/migrations/001_idempotency_request.sql`. O schema completo já contém a tabela para novas instalações.
+
+## Anexos e configuração
+
+O tipo MIME é determinado pela extensão: PDF → `application/pdf`, JPG/JPEG → `image/jpeg`, PNG → `image/png`. As credenciais ficam no backend; `BACKEND_URL` fica no ambiente do servidor do frontend.
+
+O modo de teste de e-mail redireciona mensagens ao remetente; ele ainda envia mensagens reais. Os testes automatizados simulam SMTP.

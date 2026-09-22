@@ -9,6 +9,13 @@ from backend.services.processar_folha import processar_folha
 
 class TestProcessarFolha(unittest.TestCase):
 
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        storage = patch("backend.services.processar_folha.PASTA_FOLHAS", Path(directory.name))
+        storage.start()
+        self.addCleanup(storage.stop)
+
     def criar_arquivo(self, extensao=".pdf"):
         arquivo = tempfile.NamedTemporaryFile(
             suffix=extensao,

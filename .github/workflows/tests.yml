@@ -2,30 +2,60 @@ name: Testes
 
 on:
   push:
-    branches:
-      - main
   pull_request:
-    branches:
-      - main
+
+permissions:
+  contents: read
 
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
-
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: folha_test
+          POSTGRES_PASSWORD: folha_test
+          POSTGRES_DB: folha_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U folha_test -d folha_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      FOLHA_TEST_DSN: host=localhost port=5432 dbname=folha_test user=folha_test password=folha_test
     steps:
-      - name: Baixar código
-        uses: actions/checkout@v4
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
       - name: Instalar dependências
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
+        run: python -m pip install -r backend/requirements.txt
+      - name: Testes Python e integração com PostgreSQL
+        run: python -m unittest discover -s tests -v
 
-      - name: Executar testes
-        run: |
-          python -m unittest discover -s tests -p "test_*.py"
+  frontend-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+      - name: Testes
+        run: pnpm test
+      - name: TypeScript
+        run: pnpm exec tsc --noEmit --incremental false
+      - name: Lint
+        run: pnpm lint
+      - name: Build
+        run: pnpm build

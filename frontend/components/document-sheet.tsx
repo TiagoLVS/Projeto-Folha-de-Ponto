@@ -76,8 +76,8 @@ export function DocumentSheet({
       return;
     }
 
-    if (!f.size || f.size > 10 * 1024 * 1024) {
-      setError('O arquivo deve ter conteúdo e no máximo 10 MB.');
+    if (!f.size || f.size > 15 * 1024 * 1024) {
+      setError('O arquivo deve ter conteúdo e no máximo 15 MB.');
       return;
     }
 
@@ -392,7 +392,7 @@ export function DocumentSheet({
               </Button>
 
               <small>
-                PDF, JPG ou PNG · Máximo de 10 MB
+                PDF, JPG ou PNG · Máximo de 15 MB
               </small>
 
               {file && (

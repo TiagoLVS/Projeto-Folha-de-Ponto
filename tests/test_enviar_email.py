@@ -91,6 +91,18 @@ class TestEnviarEmail(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 carregar_configuracao_email()
 
+    def test_tipo_mime_dos_anexos(self):
+        for extension, mime in (('.pdf', 'application/pdf'), ('.jpg', 'image/jpeg'), ('.jpeg', 'image/jpeg'), ('.png', 'image/png')):
+            with self.subTest(extension=extension), tempfile.TemporaryDirectory() as directory:
+                path = os.path.join(directory, 'folha' + extension)
+                with open(path, 'wb') as document:
+                    document.write(b'conteudo de teste')
+                message, status, _ = preparar_email('Ana', 'ana@example.com', path, 'digep@example.com')
+                self.assertEqual(status, 'PENDENTE')
+                attachment = next(message.iter_attachments())
+                self.assertEqual(attachment.get_content_type(), mime)
+                self.assertEqual(attachment.get_payload(decode=True), b'conteudo de teste')
+
 
 if __name__ == "__main__":
     unittest.main()
