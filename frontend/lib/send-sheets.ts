@@ -1,3 +1,17 @@
+export function getBatchKey(batch: SheetBatch): string {
+  const signature = JSON.stringify({ month: batch.month, professorIds: [...batch.professorIds].sort() });
+  const storageKey = `ponto-docente:envio:${signature}`;
+  try {
+    const saved = sessionStorage.getItem(storageKey);
+    if (saved) return saved;
+    const key = crypto.randomUUID();
+    sessionStorage.setItem(storageKey, key);
+    return key;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
 export type SheetBatch = {
   month: string;
   professorIds: string[];
@@ -71,9 +85,8 @@ export async function sendSheetBatch(
     }
 
     if (!response.ok) {
-      throw new Error(
-        "Não foi possível concluir o envio das folhas."
-      );
+      const error = await response.json().catch(() => null) as { detail?: unknown } | null;
+      throw new Error(typeof error?.detail === 'string' ? error.detail : "Não foi possível concluir o envio das folhas.");
     }
 
     const data: unknown = await response.json();
@@ -103,7 +116,7 @@ export async function sendSheetBatch(
       error.name === "AbortError"
     ) {
       throw new Error(
-        "O serviço demorou mais de 20 segundos para responder."
+        "O serviço demorou mais de 20 segundos. O envio pode continuar no servidor; tente novamente para consultar o mesmo lote."
       );
     }
 
