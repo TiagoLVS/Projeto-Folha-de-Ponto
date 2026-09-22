@@ -1,43 +1,59 @@
 # Gerenciamento de documentos
 
-A aplicação foi adaptada para documentos por professor e competência, preservando o layout e cadastro existentes. Não há mais modelo de dias, horários, cálculo de jornada ou exportação de folha artificial em HTML. O download entrega o original.
+## Cadastros
 
-## Funcionalidades
-- Upload com arrastar e soltar, PDF/JPG/PNG, limite de 15 MB; validação de tipo, extensão e tamanho no cliente.
-- Prévia, tela cheia quando suportada, download, substituição confirmada e remoção confirmada.
-- Estados Sem folha, Enviada, Processando, Identificada e Erro na leitura.
-- Conferência dos campos retornados, seleção de professor e correção da competência antes de vincular.
-- Vínculo manual explicitamente identificado, sem fabricar resultados de OCR.
-- Histórico dos 12 meses, inclusive competências sem documento.
-- Visão administrativa global com competência, status e busca; usa o mesmo estado da ficha.
-- Proteção contra documento duplicado no destino: o usuário abre o existente para decidir a substituição.
+Os professores são carregados do PostgreSQL ao abrir a aplicação, por `GET /api/servers` → `GET /servidores`. Não há professores demonstrativos. Falhas de carregamento mostram uma opção de tentar novamente, sem substituir os documentos locais por uma lista vazia.
 
-## Persistência atual
-Professores e documentos são armazenados em IndexedDB neste navegador/origem. `Enviada` representa a inclusão local. Não há arquivo central, autenticação ou sincronização entre dispositivos implementados. Limpar os dados do navegador remove os documentos. Conserve os originais. Falhas de armazenamento geram aviso e não devem ser ignoradas.
+O cadastro usa `POST /servidores`; a edição usa `PUT /servidores/{id_servidor}`. Ambos recebem `name`, `registration`, `email`, `department` e `workload` (carga horária opcional, em horas, como inteiro positivo; vazio é `null`). O campo `workload` é salvo na coluna existente `servidor.carga_horaria`. A interface aplica os dados retornados somente após o servidor salvar. Matrículas duplicadas retornam HTTP 409; cadastro inexistente, HTTP 404; dados inválidos, HTTP 422.
 
-Os oito professores iniciais são exemplos e começam sem documentos. Cadastros existentes no navegador são mantidos após recarregar. O upload usa Data URL para permitir persistência e prévia; isso ocupa mais espaço que blobs. Em produção, substitua pelo armazenamento remoto e URLs autorizadas.
+IndexedDB conserva somente documentos por ID de professor. O cache antigo é migrado apenas quando ID e matrícula correspondem ao cadastro real; não sobrescreve nome, matrícula ou contato recebidos do servidor. O registro antigo permanece no armazenamento para recuperação, se necessária.
 
-## Integração de leitura
-`lib/timesheet-api.ts` é a fronteira de integração, sem OCR no navegador.
+## Documentos e OCR
 
-Contrato atual: `POST /api/timesheets/process`, multipart com `file` (original) e `id` (UUID), header `Idempotency-Key` com o mesmo UUID. Resposta síncrona HTTP 200:
+A inclusão inicial de PDF/JPG/PNG (até 10 MB) guarda uma prévia local. `Enviada` ainda representa essa inclusão no navegador.
+
+`POST /api/timesheets/process` encaminha multipart com o campo `arquivo` para `POST /folhas/processar`. O backend guarda o original em `data/folhas`, executa o OCR e retorna `id_folha`, `status_ocr`, `matricula`, `competencia`, `servidor` e `mensagem`. O frontend conserva `id_folha` como `backendId`, inclusive nos estados `REVISAR` e `ERRO`, permitindo corrigir o mesmo registro.
+
+Na conferência manual sem processamento prévio, `POST /api/timesheets/register` → `POST /folhas/registrar` guarda o arquivo e cria uma folha `REVISAR`, sem executar OCR. Se a confirmação posterior falhar, o ID é mantido para nova tentativa.
+
+## Confirmação e correção
+
+`PATCH /api/timesheets/{id_folha}` encaminha a correção para `PATCH /folhas/{id_folha}`:
 
 ```json
-{"identifiedData":{"professorName":"João da Silva","registration":"123456","competence":"2026-09"}}
+{"id_servidor": 42, "competencia": "2026-09"}
 ```
 
-Campos ausentes aparecem como não identificados; matrícula só sugere um professor se corresponder exatamente a um cadastro. Nenhum nome provoca vínculo automático. A competência pode ser corrigida. O usuário sempre confirma. HTTP 404/405/501 informa serviço não conectado; falha de rede, timeout de 60 segundos e resposta inválida resultam em erro, com nova tentativa e opção manual. Ao sair da tela, a requisição é cancelada; recarregar durante processamento permite tentar novamente.
+Em uma transação, o backend verifica folha e professor, obtém/cria a competência e atualiza `id_servidor`, `id_competencia` e `status_ocr = OK`, limpando `mensagem_ocr`. Os campos da leitura original (`matricula_lida`, `competencia_lida`) e o arquivo são preservados.
 
-O backend deverá autenticar/autorizar requisições, validar o conteúdo real do arquivo, guardar o original, alinhar o documento e enviar ao OCR apenas recortes dos campos impressos. Ignorar manuscrito é responsabilidade desse processamento; o front não garante que o backend o faça.
+Uma folha já vinculada ao mesmo professor/competência impede a correção com HTTP 409, sem sobrescrever documentos. IDs inexistentes retornam 404; competência inválida ou anterior a 2000 retorna 422. Repetir a mesma confirmação é permitido.
 
-Para produção, substitua o adaptador local por API de professores/documentos e implemente upload, listagem, confirmação, substituição e exclusão no servidor. O vínculo e a unicidade professor+competência precisam ser transacionais no servidor. Para processamento assíncrono, adicione consulta do job no adaptador. Nenhum endpoint de backend foi criado neste projeto.
+A interface só move o documento para o professor/competência escolhidos após o PATCH ser confirmado. Vínculos confirmados podem ser corrigidos pelo botão **Corrigir vínculo**. Confirmações antigas feitas apenas no navegador precisam ser confirmadas novamente para serem salvas no banco.
 
-O envio usa `/api/timesheets/send`; o backend consulta os vínculos entre `folha_ponto`, `servidor` e `competencia` no PostgreSQL e registra cada tentativa em `envio`.
+O envio de e-mail consulta `folha_ponto`, `servidor` e `competencia` no PostgreSQL e, portanto, passa a usar o vínculo corrigido.
 
-## Verificação realizada
-- TypeScript dos componentes, páginas e bibliotecas: sem erros.
-- ESLint dos arquivos alterados: sem erros; avisos sobre uso de img (prévia do original e logo).
-- Bundle cliente produzido com Vite.
-- Adaptador de leitura: resposta válida e serviço indisponível verificados com fetch controlado, sem OCR real.
+## Limites atuais
 
-O build completo de infraestrutura não foi verificado: as dependências Cloudflare/Drizzle não estão disponíveis no ambiente de revisão. A inspeção interativa não foi concluída porque não há Chromium instalado. Nenhuma dependência foi adicionada ao projeto.
+As prévias e o histórico exibido ainda dependem do cache de documentos deste navegador. Ainda não há listagem/download remoto para reconstruir esse histórico em outro dispositivo. Limpar o cache não apaga os arquivos e vínculos já salvos no servidor, mas eles deixam de aparecer na interface local. **Remover cópia local** também não exclui o registro do banco. Conserve os originais.
+
+Autenticação, exclusão remota e sincronização do histórico entre dispositivos continuam fora deste fluxo. O OCR conserva o comportamento existente de atualizar a folha quando reconhece uma combinação professor/competência já registrada.
+
+## Testes
+
+Frontend (Node 22.13+):
+
+```bash
+cd frontend
+pnpm test
+pnpm exec tsc --noEmit --incremental false
+```
+
+Backend, na raiz do projeto, com as dependências de `backend/requirements.txt` instaladas:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Para executar também a integração real, defina `FOLHA_TEST_DSN` com uma conexão PostgreSQL de testes. Cada teste cria e remove um schema exclusivo; não usa as tabelas da aplicação. Sem essa variável, os testes de integração são explicitamente ignorados.
+
+A integração cobre cadastro, listagem, edição, duplicidade, correção de OCR, leitura dos vínculos usados pelo envio, conflitos, validação e armazenamento manual do original. Não envia e-mails. Não é necessária migração do schema existente.

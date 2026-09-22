@@ -5,11 +5,16 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from psycopg.errors import UniqueViolation
 
-from backend.database.repository import criar_servidor, listar_folhas_para_envio
+from backend.database.repository import (
+    atualizar_servidor, confirmar_folha, criar_servidor,
+    listar_folhas_para_envio, listar_servidores, salvar_folha,
+)
 from backend.services.enviar_email import enviar_folha_do_banco
 from backend.services.ler_planilha import importar_planilha
-from backend.services.processar_folha import processar_folha
+from backend.services.processar_folha import armazenar_arquivo, processar_folha
 
 
 EXTENSOES_DOCUMENTO = {".pdf", ".png", ".jpg", ".jpeg"}
@@ -21,7 +26,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "PATCH"],
     allow_headers=["Content-Type", "Idempotency-Key"],
 )
 
@@ -77,20 +82,78 @@ def inicio():
     return {"mensagem": "API do Sistema de Folha de Ponto funcionando"}
 
 
+class ServidorPayload(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=200)
+    registration: str = Field(pattern=r"^[0-9]{4,16}$")
+    email: str = Field(max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    department: str = Field(default="", max_length=200)
+    workload: int | None = Field(default=None, gt=0, le=2147483647, strict=True)
+
+    @field_validator("email")
+    @classmethod
+    def normalizar_email(cls, value):
+        return value.lower()
+
+
+class ConfirmacaoFolhaPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id_servidor: int = Field(gt=0, strict=True)
+    competencia: str = Field(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+
+    @field_validator("competencia")
+    @classmethod
+    def validar_ano(cls, value):
+        if int(value[:4]) < 2000:
+            raise ValueError("O ano deve ser a partir de 2000.")
+        return value
+
+
+@app.get("/servidores")
+def consultar_servidores():
+    return listar_servidores()
+
+
 @app.post("/servidores", status_code=201)
-def cadastrar_servidor(payload: dict):
-    nome = str(payload.get("name", "")).strip()
-    matricula = str(payload.get("registration", "")).strip()
-    email = str(payload.get("email", "")).strip().lower()
-    departamento = str(payload.get("department", "")).strip()
-    if not nome or not re.fullmatch(r"\d{4,16}", matricula):
-        raise HTTPException(status_code=422, detail="Nome e matrícula válidos são obrigatórios.")
-    if not re.fullmatch(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
-        raise HTTPException(status_code=422, detail="E-mail inválido.")
-    servidor = criar_servidor(nome, matricula, email, departamento)
+def cadastrar_servidor(payload: ServidorPayload):
+    try:
+        servidor = criar_servidor(
+            payload.name, payload.registration, payload.email, payload.department,
+            payload.workload,
+        )
+    except UniqueViolation:
+        raise HTTPException(status_code=409, detail="Essa matrícula já está cadastrada.")
     if servidor is None:
         raise HTTPException(status_code=409, detail="Essa matrícula já está cadastrada.")
     return servidor
+
+
+@app.put("/servidores/{id_servidor}")
+def editar_servidor(id_servidor: int, payload: ServidorPayload):
+    try:
+        servidor = atualizar_servidor(
+            id_servidor, payload.name, payload.registration, payload.email, payload.department,
+            payload.workload,
+        )
+    except UniqueViolation:
+        raise HTTPException(status_code=409, detail="Essa matrícula já está cadastrada.")
+    if servidor is None:
+        raise HTTPException(status_code=404, detail="Professor não encontrado.")
+    return servidor
+
+
+@app.patch("/folhas/{id_folha}")
+def corrigir_folha(id_folha: int, payload: ConfirmacaoFolhaPayload):
+    ano, mes = map(int, payload.competencia.split("-"))
+    try:
+        return confirmar_folha(id_folha, payload.id_servidor, mes, ano)
+    except LookupError as erro:
+        raise HTTPException(status_code=404, detail=str(erro))
+    except UniqueViolation:
+        raise HTTPException(
+            status_code=409,
+            detail="Já existe uma folha para esse professor nessa competência. Nenhuma folha foi substituída.",
+        )
 
 
 @app.post("/folhas/processar")
@@ -98,6 +161,26 @@ async def processar_documento(arquivo: UploadFile = File(...)):
     caminho = await salvar_upload_temporario(arquivo)
     try:
         return processar_folha(caminho)
+    finally:
+        caminho.unlink(missing_ok=True)
+
+
+@app.post("/folhas/registrar", status_code=201)
+async def registrar_documento(arquivo: UploadFile = File(...)):
+    """Guarda o original para conferência manual, sem depender do OCR."""
+    caminho = await salvar_upload_temporario(arquivo)
+    salvo = None
+    try:
+        salvo = armazenar_arquivo(caminho)
+        id_folha = salvar_folha(
+            None, None, str(salvo), Path(arquivo.filename).name,
+            None, None, "REVISAR", "Aguardando conferência manual.",
+        )
+        return {"id_folha": id_folha, "status_ocr": "REVISAR"}
+    except Exception:
+        if salvo is not None:
+            salvo.unlink(missing_ok=True)
+        raise
     finally:
         caminho.unlink(missing_ok=True)
 

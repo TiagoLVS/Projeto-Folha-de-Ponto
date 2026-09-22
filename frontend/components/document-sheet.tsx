@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { ArrowLeft, Download, FileText, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { monthLabel, sheetStatus, type Professor, type Sheet } from '@/lib/ponto';
-import { processDocument } from '@/lib/timesheet-api';
+import { confirmDocument, processDocument, registerDocument } from '@/lib/timesheet-api';
 import { toast } from 'sonner';
 
 type Props = {
@@ -76,8 +76,8 @@ export function DocumentSheet({
       return;
     }
 
-    if (!f.size || f.size > 15 * 1024 * 1024) {
-      setError('O arquivo deve ter conteúdo e no máximo 15 MB.');
+    if (!f.size || f.size > 10 * 1024 * 1024) {
+      setError('O arquivo deve ter conteúdo e no máximo 10 MB.');
       return;
     }
 
@@ -164,20 +164,22 @@ export function DocumentSheet({
 
       update({
         ...sheet,
-        status: 'identified',
-        identifiedData: data,
+        backendId: data.backendId,
+        status: data.status === 'OK' ? 'identified' : 'error',
+        identifiedData: data.identifiedData,
         identificationSource: 'api',
         confirmedAt: undefined,
-        error: undefined,
+        error: data.status === 'OK' ? undefined : data.message || 'Confira os dados manualmente.',
         updatedAt: new Date().toISOString()
       });
 
       const matches = professors.filter(
-        p => p.registration === data.registration
+        p => p.registration === data.identifiedData.registration
       );
 
       setTarget(matches.length === 1 ? matches[0].id : '');
-      setPeriod(data.competence || month);
+      setPeriod(data.identifiedData.competence || month);
+      setManual(data.status !== 'OK');
     } catch (e) {
       const message = controller.signal.aborted
         ? 'Processamento interrompido ou tempo limite excedido. Tente novamente.'
@@ -198,66 +200,53 @@ export function DocumentSheet({
     }
   }
 
-  function confirm() {
-    if (
-      !sheet ||
-      !target ||
-      !/^\d{4}-(0[1-9]|1[0-2])$/.test(period)
-    ) {
-      setError('Selecione o professor e uma competência válida.');
+  async function confirm() {
+    if (lock.current) return;
+    if (!sheet || !target || !/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(period) || Number(period.slice(0, 4)) < 2000) {
+      setError('Selecione o professor e uma competência válida a partir de 2000.');
+      return;
+    }
+    const person = professors.find(p => p.id === target);
+    if (!person) { setError('Professor não encontrado. Recarregue a página.'); return; }
+    if (person.sheets[period] && person.sheets[period].id !== sheet.id) {
+      setConflict({ id: target, month: period });
+      setError(`Já existe uma folha para ${person.name} em ${monthLabel(period)}. Abra a competência existente para visualizar ou substituir; este documento foi preservado.`);
       return;
     }
 
-    const person = professors.find(p => p.id === target)!;
-
-    if (
-      person.sheets[period] &&
-      person.sheets[period].id !== sheet.id
-    ) {
-      setConflict({
-        id: target,
-        month: period
-      });
-
-      setError(
-        `Já existe uma folha para ${person.name} em ${monthLabel(period)}. Abra a competência existente para visualizar ou substituir; este documento foi preservado.`
-      );
-
-      return;
-    }
-
-    const value: Sheet = {
-      ...sheet,
-      status: 'identified',
-      identificationSource: manual
-        ? 'manual'
-        : sheet.identificationSource,
-      confirmedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      error: undefined
-    };
-
-    onChange(ps =>
-      ps.map(p => {
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    setConflict(undefined);
+    try {
+      // Documentos antigos ou vinculados sem OCR ainda não têm ID no banco.
+      const backendId = sheet.backendId ?? await registerDocument(sheet);
+      const persisted = { ...sheet, backendId };
+      // Guarde o ID mesmo quando a confirmação falhar, para permitir nova tentativa.
+      update(persisted);
+      await confirmDocument(backendId, target, period);
+      const value: Sheet = {
+        ...persisted,
+        status: 'identified',
+        identificationSource: manual ? 'manual' : sheet.identificationSource,
+        confirmedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        error: undefined,
+      };
+      onChange(ps => ps.map(p => {
         const sheets = { ...p.sheets };
-
-        if (p.id === professor.id) {
-          delete sheets[month];
-        }
-
-        if (p.id === target) {
-          sheets[period] = value;
-        }
-
-        return {
-          ...p,
-          sheets
-        };
-      })
-    );
-
-    toast.success('Folha vinculada com sucesso.');
-    onLinked(target, period);
+        if (p.id === professor.id) delete sheets[month];
+        if (p.id === target) sheets[period] = value;
+        return { ...p, sheets };
+      }));
+      toast.success('Vínculo salvo no servidor.');
+      onLinked(target, period);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Não foi possível confirmar o vínculo. Tente novamente.');
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   }
 
   const badge =
@@ -273,6 +262,7 @@ export function DocumentSheet({
     <div className="view-enter">
       <button
         className="back-button"
+        disabled={busy}
         onClick={onBack}
       >
         <ArrowLeft size={16} />
@@ -302,7 +292,7 @@ export function DocumentSheet({
       </div>
 
       <p className="email-note">
-        Documentos salvos neste navegador. Mantenha os originais; o arquivo central depende da integração com o servidor.
+        A prévia fica neste navegador. Ao processar ou confirmar o vínculo, o original é guardado no servidor. Mantenha uma cópia dos arquivos originais.
       </p>
 
       {error && (
@@ -402,7 +392,7 @@ export function DocumentSheet({
               </Button>
 
               <small>
-                PDF, JPG ou PNG · Máximo de 15 MB
+                PDF, JPG ou PNG · Máximo de 10 MB
               </small>
 
               {file && (
@@ -481,7 +471,7 @@ export function DocumentSheet({
                   onClick={() => {
                     if (
                       window.confirm(
-                        'Remover esta folha e seu vínculo?'
+                        'Remover a cópia deste navegador? O documento e o vínculo no servidor serão mantidos.'
                       )
                     ) {
                       update();
@@ -490,7 +480,7 @@ export function DocumentSheet({
                     }
                   }}
                 >
-                  Remover folha
+                  Remover cópia local
                 </Button>
               </div>
 
@@ -610,6 +600,12 @@ export function DocumentSheet({
                         <strong>Vínculo confirmado</strong>
                       </p>
 
+                      <Button variant="outline" disabled={busy} onClick={() => {
+                        setManual(true);
+                        setTarget(professor.id);
+                        setPeriod(month);
+                        update({ ...sheet, confirmedAt: undefined });
+                      }}>Corrigir vínculo</Button>
                       <dl>
                         <dt>Professor</dt>
                         <dd>{professor.name}</dd>
@@ -631,12 +627,9 @@ export function DocumentSheet({
                         Professor para vínculo
                         <select
                           aria-label="Professor para vínculo"
+                          disabled={busy}
                           value={target}
                           onChange={e => {
-                            console.log(
-                              'PROFESSOR ESCOLHIDO:',
-                              e.target.value
-                            );
                             setTarget(e.target.value);
                           }}
                         >
@@ -659,6 +652,8 @@ export function DocumentSheet({
                         Competência para vínculo
                         <input
                           aria-label="Competência para vínculo"
+                          disabled={busy}
+                          min="2000-01"
                           type="month"
                           value={period}
                           onChange={e =>
@@ -675,7 +670,7 @@ export function DocumentSheet({
                         }
                         onClick={confirm}
                       >
-                        Confirmar vínculo
+                        {busy ? 'Salvando vínculo…' : 'Confirmar vínculo'}
                       </Button>
                     </>
                   )}

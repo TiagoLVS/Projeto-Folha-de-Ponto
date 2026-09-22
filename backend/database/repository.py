@@ -3,7 +3,62 @@ from psycopg.rows import dict_row
 from backend.database.connection import conectar
 
 
-def criar_servidor(nome, matricula, email, departamento):
+def listar_servidores():
+    with conectar() as conn:
+        with conn.cursor(row_factory=dict_row) as cursor:
+            cursor.execute("""
+                SELECT id_servidor, nome, matricula, email, departamento, carga_horaria
+                FROM servidor ORDER BY nome, id_servidor
+            """)
+            return cursor.fetchall()
+
+
+def atualizar_servidor(id_servidor, nome, matricula, email, departamento, carga_horaria=None):
+    with conectar() as conn:
+        with conn.cursor(row_factory=dict_row) as cursor:
+            cursor.execute("""
+                UPDATE servidor SET nome = %s, matricula = %s,
+                    email = %s, departamento = %s, carga_horaria = %s
+                WHERE id_servidor = %s
+                RETURNING id_servidor, nome, matricula, email, departamento, carga_horaria
+            """, (nome, matricula, email, departamento, carga_horaria, id_servidor))
+            return cursor.fetchone()
+
+
+def confirmar_folha(id_folha, id_servidor, mes, ano):
+    """Corrige o vínculo atomicamente, preservando a leitura original do OCR."""
+    with conectar() as conn:
+        with conn.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                "SELECT id_folha FROM folha_ponto WHERE id_folha = %s FOR UPDATE",
+                (id_folha,),
+            )
+            if cursor.fetchone() is None:
+                raise LookupError("Folha não encontrada.")
+            cursor.execute(
+                "SELECT id_servidor FROM servidor WHERE id_servidor = %s FOR KEY SHARE",
+                (id_servidor,),
+            )
+            if cursor.fetchone() is None:
+                raise LookupError("Professor não encontrado.")
+            cursor.execute("""
+                INSERT INTO competencia (mes, ano) VALUES (%s, %s)
+                ON CONFLICT (mes, ano) DO UPDATE SET mes = EXCLUDED.mes
+                RETURNING id_competencia
+            """, (mes, ano))
+            id_competencia = cursor.fetchone()["id_competencia"]
+            # A restrição única também protege contra confirmações concorrentes.
+            cursor.execute("""
+                UPDATE folha_ponto
+                SET id_servidor = %s, id_competencia = %s,
+                    status_ocr = 'OK', mensagem_ocr = NULL
+                WHERE id_folha = %s
+                RETURNING id_folha, id_servidor, id_competencia, status_ocr
+            """, (id_servidor, id_competencia, id_folha))
+            return {**cursor.fetchone(), "competencia": f"{ano:04d}-{mes:02d}"}
+
+
+def criar_servidor(nome, matricula, email, departamento, carga_horaria=None):
     with conectar() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -14,11 +69,11 @@ def criar_servidor(nome, matricula, email, departamento):
                 return None
             cursor.execute(
                 """
-                INSERT INTO servidor (nome, matricula, email, departamento)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id_servidor, nome, matricula, email, departamento
+                INSERT INTO servidor (nome, matricula, email, departamento, carga_horaria)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id_servidor, nome, matricula, email, departamento, carga_horaria
                 """,
-                (nome, matricula, email, departamento),
+                (nome, matricula, email, departamento, carga_horaria),
             )
             return cursor.fetchone()
 
