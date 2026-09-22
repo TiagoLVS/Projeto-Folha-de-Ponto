@@ -2,15 +2,21 @@ import os
 import re
 import smtplib
 import math
+import mimetypes
+
 from datetime import datetime
 from email.message import EmailMessage
+
 
 # ============================================================
 # FUNÇÕES AUXILIARES
 # ============================================================
 
 def email_valido(email):
-    if email is None or (isinstance(email, float) and math.isnan(email)):
+    if email is None or (
+        isinstance(email, float)
+        and math.isnan(email)
+    ):
         return False
 
     email = str(email).strip()
@@ -29,7 +35,10 @@ def normalizar_matricula(valor):
     é lida pelo Excel como número.
     """
 
-    if valor is None or (isinstance(valor, float) and math.isnan(valor)):
+    if valor is None or (
+        isinstance(valor, float)
+        and math.isnan(valor)
+    ):
         return ""
 
     valor = str(valor).strip()
@@ -105,13 +114,29 @@ def preparar_email(
 
     try:
         with open(arquivo_pdf, "rb") as arquivo:
-            pdf = arquivo.read()
+            conteudo = arquivo.read()
+
+        tipo_mime, _ = mimetypes.guess_type(
+            arquivo_pdf
+        )
+
+        if tipo_mime:
+            maintype, subtype = tipo_mime.split(
+                "/",
+                1
+            )
+
+        else:
+            maintype = "application"
+            subtype = "octet-stream"
 
         mensagem.add_attachment(
-            pdf,
-            maintype="application",
-            subtype="pdf",
-            filename=os.path.basename(arquivo_pdf)
+            conteudo,
+            maintype=maintype,
+            subtype=subtype,
+            filename=os.path.basename(
+                arquivo_pdf
+            )
         )
 
         return (
@@ -167,22 +192,63 @@ def enviar_email(
         )
 
 
-def enviar_folha_do_banco(folha):
-    """Envia uma folha persistida e registra o resultado no PostgreSQL."""
-    from backend.database.repository import criar_envio, finalizar_envio
+# ============================================================
+# ENVIO DA FOLHA ARMAZENADA NO BANCO
+# ============================================================
 
-    id_envio = criar_envio(folha["id_folha"], folha["email"])
-    mensagem, status, erro = preparar_email(
-        folha["nome"], folha["email"], folha["caminho_arquivo"], os.getenv("DIGEP_EMAIL", "")
+def enviar_folha_do_banco(folha):
+    """
+    Envia uma folha persistida e registra
+    o resultado no PostgreSQL.
+    """
+
+    from backend.database.repository import (
+        criar_envio,
+        finalizar_envio
     )
+
+    id_envio = criar_envio(
+        folha["id_folha"],
+        folha["email"]
+    )
+
+    mensagem, status, erro = preparar_email(
+        folha["nome"],
+        folha["email"],
+        folha["caminho_arquivo"],
+        os.getenv("DIGEP_EMAIL", "")
+    )
+
     if status == "PENDENTE":
         try:
-            remetente, senha, modo_teste = carregar_configuracao_email()
-            if modo_teste:
-                mensagem.replace_header("To", remetente)
-            status, erro, _ = enviar_email(mensagem, remetente, senha)
-        except Exception as falha:
-            status, erro = "ERRO", str(falha)
-    finalizar_envio(id_envio, status, erro or None)
-    return {"id_envio": id_envio, "status": status, "mensagem_erro": erro}
+            remetente, senha, modo_teste = (
+                carregar_configuracao_email()
+            )
 
+            if modo_teste:
+                mensagem.replace_header(
+                    "To",
+                    remetente
+                )
+
+            status, erro, _ = enviar_email(
+                mensagem,
+                remetente,
+                senha
+            )
+
+        except Exception as falha:
+            status = "ERRO"
+            erro = str(falha)
+
+    finalizar_envio(
+        id_envio,
+        status,
+        erro or None
+    )
+
+    return {
+        "id_envio": id_envio,
+        "status": status,
+        "mensagem_erro": erro
+    }

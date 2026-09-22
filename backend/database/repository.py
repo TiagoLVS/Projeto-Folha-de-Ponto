@@ -1,64 +1,154 @@
+import hashlib
+import json
+
 from psycopg.rows import dict_row
 
 from backend.database.connection import conectar
 
 
-def listar_servidores():
-    with conectar() as conn:
-        with conn.cursor(row_factory=dict_row) as cursor:
-            cursor.execute("""
-                SELECT id_servidor, nome, matricula, email, departamento, carga_horaria
-                FROM servidor ORDER BY nome, id_servidor
-            """)
-            return cursor.fetchall()
+def canonicalize_professor_ids(ids):
+    valores = []
+    vistos = set()
+    for valor in ids or []:
+        try:
+            inteiro = int(valor)
+        except (TypeError, ValueError):
+            raise ValueError("IDs de professores inválidos.")
+        if inteiro not in vistos:
+            vistos.add(inteiro)
+            valores.append(inteiro)
+    return sorted(valores)
 
 
-def atualizar_servidor(id_servidor, nome, matricula, email, departamento, carga_horaria=None):
+def canonicalize_batch_payload(month, professor_ids):
+    return {
+        "month": str(month),
+        "professorIds": canonicalize_professor_ids(professor_ids),
+    }
+
+
+def payload_hash_for(month, professor_ids):
+    payload = canonicalize_batch_payload(month, professor_ids)
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def registrar_requisicao_idempotente(idempotency_key, payload_hash, payload):
+    if not idempotency_key:
+        return None
+
     with conectar() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
-            cursor.execute("""
-                UPDATE servidor SET nome = %s, matricula = %s,
-                    email = %s, departamento = %s, carga_horaria = %s
-                WHERE id_servidor = %s
-                RETURNING id_servidor, nome, matricula, email, departamento, carga_horaria
-            """, (nome, matricula, email, departamento, carga_horaria, id_servidor))
+            cursor.execute(
+                """
+                INSERT INTO idempotency_request (
+                    idempotency_key,
+                    payload_hash,
+                    request_body,
+                    status,
+                    created_at,
+                    updated_at,
+                    started_at
+                )
+                VALUES (%s, %s, %s::jsonb, 'PROCESSANDO', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (idempotency_key) DO NOTHING
+                RETURNING
+                    idempotency_key,
+                    payload_hash,
+                    status,
+                    response_status_code,
+                    response_body,
+                    request_body,
+                    created_at,
+                    updated_at,
+                    completed_at
+                """,
+                (idempotency_key, payload_hash, json.dumps(payload, separators=(",", ":"), sort_keys=True)),
+            )
+            row = cursor.fetchone()
+            if row is not None:
+                row["created"] = True
+                return row
+
+            cursor.execute(
+                """
+                SELECT
+                    idempotency_key,
+                    payload_hash,
+                    status,
+                    response_status_code,
+                    response_body,
+                    request_body,
+                    created_at,
+                    updated_at,
+                    completed_at
+                FROM idempotency_request
+                WHERE idempotency_key = %s
+                FOR UPDATE
+                """,
+                (idempotency_key,),
+            )
+            row = cursor.fetchone()
+            if row is not None:
+                row["created"] = False
+            return row
+
+
+def finalizar_requisicao_idempotente(idempotency_key, status, response_status_code, response_body):
+    if not idempotency_key:
+        return None
+
+    with conectar() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE idempotency_request
+                SET
+                    status = %s,
+                    response_status_code = %s,
+                    response_body = %s::jsonb,
+                    updated_at = CURRENT_TIMESTAMP,
+                    completed_at = CURRENT_TIMESTAMP
+                WHERE idempotency_key = %s
+                """,
+                (
+                    status,
+                    response_status_code,
+                    json.dumps(response_body, separators=(",", ":"), sort_keys=True),
+                    idempotency_key,
+                ),
+            )
+            return cursor.rowcount
+
+
+def obter_requisicao_idempotente(idempotency_key):
+    if not idempotency_key:
+        return None
+
+    with conectar() as conn:
+        with conn.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    idempotency_key,
+                    payload_hash,
+                    status,
+                    response_status_code,
+                    response_body,
+                    request_body,
+                    created_at,
+                    updated_at,
+                    completed_at
+                FROM idempotency_request
+                WHERE idempotency_key = %s
+                """,
+                (idempotency_key,),
+            )
             return cursor.fetchone()
 
 
-def confirmar_folha(id_folha, id_servidor, mes, ano):
-    """Corrige o vínculo atomicamente, preservando a leitura original do OCR."""
-    with conectar() as conn:
-        with conn.cursor(row_factory=dict_row) as cursor:
-            cursor.execute(
-                "SELECT id_folha FROM folha_ponto WHERE id_folha = %s FOR UPDATE",
-                (id_folha,),
-            )
-            if cursor.fetchone() is None:
-                raise LookupError("Folha não encontrada.")
-            cursor.execute(
-                "SELECT id_servidor FROM servidor WHERE id_servidor = %s FOR KEY SHARE",
-                (id_servidor,),
-            )
-            if cursor.fetchone() is None:
-                raise LookupError("Professor não encontrado.")
-            cursor.execute("""
-                INSERT INTO competencia (mes, ano) VALUES (%s, %s)
-                ON CONFLICT (mes, ano) DO UPDATE SET mes = EXCLUDED.mes
-                RETURNING id_competencia
-            """, (mes, ano))
-            id_competencia = cursor.fetchone()["id_competencia"]
-            # A restrição única também protege contra confirmações concorrentes.
-            cursor.execute("""
-                UPDATE folha_ponto
-                SET id_servidor = %s, id_competencia = %s,
-                    status_ocr = 'OK', mensagem_ocr = NULL
-                WHERE id_folha = %s
-                RETURNING id_folha, id_servidor, id_competencia, status_ocr
-            """, (id_servidor, id_competencia, id_folha))
-            return {**cursor.fetchone(), "competencia": f"{ano:04d}-{mes:02d}"}
-
-
-def criar_servidor(nome, matricula, email, departamento, carga_horaria=None):
+def criar_servidor(nome, matricula, email, departamento):
     with conectar() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -69,11 +159,11 @@ def criar_servidor(nome, matricula, email, departamento, carga_horaria=None):
                 return None
             cursor.execute(
                 """
-                INSERT INTO servidor (nome, matricula, email, departamento, carga_horaria)
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING id_servidor, nome, matricula, email, departamento, carga_horaria
+                INSERT INTO servidor (nome, matricula, email, departamento)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id_servidor, nome, matricula, email, departamento
                 """,
-                (nome, matricula, email, departamento, carga_horaria),
+                (nome, matricula, email, departamento),
             )
             return cursor.fetchone()
 

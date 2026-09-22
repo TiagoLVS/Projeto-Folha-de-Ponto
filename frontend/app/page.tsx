@@ -8,10 +8,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast, Toaster } from "sonner";
-import { monthLabel, sheetStatus, type Professor, type Status } from "@/lib/ponto";
+import { createDemoData, monthLabel, sheetStatus, type Professor, type Status } from "@/lib/ponto";
 import { DocumentSheet } from "@/components/document-sheet";
-import { loadDocuments, persistDocuments } from "@/lib/document-storage";
-import { listProfessors, saveProfessor as saveProfessorOnServer } from "@/lib/professor-api";
+import { loadProfessors, persistProfessors } from "@/lib/document-storage";
 import { downloadSheet } from "@/lib/export-sheet";
 import { sendSheetBatch, type BatchReceipt } from "@/lib/send-sheets";
 
@@ -45,40 +44,11 @@ function Navigation({ view, navigate }: { view: View; navigate: (v: View) => voi
 export default function Home() {
   const [loading, setLoading] = useState(true);
   const finishLoading = useCallback(() => setLoading(false), []);
-  const [professors, setProfessors] = useState<Professor[]>([]);
+  const [professors, setProfessors] = useState<Professor[]>(createDemoData);
   const [storageReady, setStorageReady] = useState(false);
   const storageQueue = useRef(Promise.resolve());
-  const [dataError, setDataError] = useState("");
-  const [cacheEnabled, setCacheEnabled] = useState(false);
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  useEffect(() => {
-    let active = true;
-    listProfessors().then(async records => {
-      let restored = records;
-      let writable = false;
-      try {
-        restored = await loadDocuments(records);
-        writable = true;
-      } catch {
-        if (active) toast.error("Professores carregados, mas os documentos locais estão indisponíveis. Recarregue antes de adicionar arquivos.");
-      }
-      if (!active) return;
-      setCacheEnabled(writable);
-      setProfessors(restored);
-      setDataError("");
-      setStorageReady(true);
-    }).catch(() => {
-      if (active) setDataError("Não foi possível carregar os professores. Confira a conexão com o servidor e tente novamente.");
-    });
-    return () => { active = false; };
-  }, [loadAttempt]);
-  useEffect(() => {
-    if (storageReady && cacheEnabled) {
-      storageQueue.current = storageQueue.current.then(() => persistDocuments(professors)).catch(() => {
-        toast.error("Não foi possível salvar os documentos neste navegador. Mantenha uma cópia dos arquivos originais.");
-      });
-    }
-  }, [professors, storageReady, cacheEnabled]);
+  useEffect(() => { loadProfessors().then(data => { if (data) setProfessors(data); setStorageReady(true); }).catch(() => toast.error("Não foi possível abrir o armazenamento local. Recarregue a página.")); }, []);
+  useEffect(() => { if (storageReady) { storageQueue.current = storageQueue.current.then(() => persistProfessors(professors)).catch(() => { toast.error("Não foi possível salvar os dados neste navegador. Mantenha uma cópia dos arquivos originais."); }); } }, [professors, storageReady]);
   const [month, setMonth] = useState(INITIAL_MONTH);
   const [view, setView] = useState<View>("professores");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -87,8 +57,6 @@ export default function Home() {
   const [edit, setEdit] = useState<Professor | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [isNewProfessor, setIsNewProfessor] = useState(false);
-  const [savingProfessor, setSavingProfessor] = useState(false);
-  const professorLock = useRef(false);
   function openProfessorEditor(professor: Professor, isNew = false) {
     setEdit(professor);
     setIsNewProfessor(isNew);
@@ -131,32 +99,28 @@ export default function Home() {
     try {
       const result = await sendSheetBatch(batch, key);
       setReceipt(result);
-      toast.success(`Lote recebido: ${result.acceptedCount} folhas na fila de envio.`);
+      toast.success(`${result.sentCount} folhas enviadas com sucesso.`);
     } catch (error) {
       setSendError(error instanceof Error ? error.message : "Não foi possível confirmar o envio.");
     } finally { batchLock.current = false; setSending(false); }
   }
   async function saveProfessor(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault(); if (!edit || professorLock.current) return;
+    e.preventDefault(); if (!edit) return;
     const cleaned = { ...edit, name: edit.name.trim(), registration: edit.registration.trim(), email: edit.email.trim() };
     if (!cleaned.name || !/^\d{4,16}$/.test(cleaned.registration) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned.email)) { setFormError("Preencha um nome, uma matrícula de 4 a 16 dígitos e um e-mail válido."); return; }
-    if (cleaned.workload !== null && (!Number.isInteger(cleaned.workload) || cleaned.workload < 1 || cleaned.workload > 2147483647)) { setFormError("Informe uma carga horária inteira maior que zero ou deixe o campo em branco."); return; }
     if (professors.some(p => p.id !== edit.id && p.registration === cleaned.registration)) { setFormError("Essa matrícula já está cadastrada."); return; }
-    professorLock.current = true;
-    setSavingProfessor(true);
-    setFormError("");
-    try {
-      const saved = await saveProfessorOnServer(cleaned, isNewProfessor);
-      setProfessors(ps => isNewProfessor ? [...ps, saved] : ps.map(p => p.id === saved.id ? { ...saved, sheets: p.sheets } : p));
-      if (isNewProfessor) { setQuery(""); setFilter("Todas as situações"); }
-      setEditOpen(false);
-      toast.success(isNewProfessor ? "Professor cadastrado." : "Dados do professor atualizados.");
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Não foi possível salvar o professor. Tente novamente.");
-    } finally {
-      professorLock.current = false;
-      setSavingProfessor(false);
+    if (isNewProfessor) {
+      try {
+        const response = await fetch("/api/servers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cleaned) });
+        const data = await response.json() as { id_servidor?: number; detail?: string };
+        if (!response.ok || !data.id_servidor) { setFormError(data.detail || "Não foi possível salvar o professor no banco."); return; }
+        cleaned.id = String(data.id_servidor);
+      } catch { setFormError("Não foi possível conectar ao backend para salvar o professor."); return; }
     }
+    setProfessors(ps => isNewProfessor ? [...ps, cleaned] : ps.map(p => p.id === cleaned.id ? cleaned : p));
+    if (isNewProfessor) { setQuery(""); setFilter("Todas as situações"); }
+    setEditOpen(false);
+    toast.success(isNewProfessor ? "Professor adicionado neste navegador." : "Dados do professor atualizados neste navegador.");
   }
 
   useEffect(() => {
@@ -167,20 +131,20 @@ export default function Home() {
     return () => life.abort();
   }, [professors, month]);
 
-  return <>{dataError && <div role="alert" className="form-error">{dataError} <Button onClick={() => { setDataError(""); setLoadAttempt(attempt => attempt + 1); }}>Tentar novamente</Button></div>}<div inert={loading || !storageReady || undefined}><div className="app-shell"><Navigation view={view} navigate={navigate} /><div className="app-main">
+  return <><div inert={loading || !storageReady || undefined}><div className="app-shell"><Navigation view={view} navigate={navigate} /><div className="app-main">
     <header className="topbar"><div className="breadcrumb"><span>Gestão acadêmica</span><span className="slash">/</span><strong>{view === "professores" ? "Professores" : view === "folhas" ? "Folhas de ponto" : selected?.name}</strong></div><div className="topbar-right"><button aria-label="Ver professores sem folha" className="notification" onClick={() => { navigate("professores"); setFilter("Sem folha"); }}><Bell size={19} /><i /></button></div></header>
     <main className="workspace" id="main-content">
     {(view === "professores" || view === "folhas") && <div className="view-enter"><div className="page-heading"><div><h1>{view === "folhas" ? "Folhas de ponto" : "Professores"}<span className="count-pill">{professors.length}</span></h1></div><div className="heading-actions"><label className="month-control"><CalendarDays size={17} /><input type="month" aria-label="Competência" min="2000-01" max="2099-12" value={month} onChange={e => /^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value) && setMonth(e.target.value)} /></label><Button onClick={() => openSend(professors.map(p => p.id))}><Send size={16} />Enviar folhas do mês</Button></div></div>
     <section className="stats" aria-label="Resumo mensal"><article className="stat"><div><p>Professores cadastrados</p><strong>{professors.length}<small>professores</small></strong><span>Todos os vínculos ativos</span></div><div className="stat-icon"><Users /></div></article><article className="stat"><div><p>Folhas identificadas</p><strong>{finished}<small>de {professors.length}</small></strong><span>{Math.round(finished / (professors.length || 1) * 100)}% do mês concluído</span></div><div className="stat-icon soft"><CheckCheck /></div><div className="stat-progress"><i style={{ width: `${finished / (professors.length || 1) * 100}%` }} /></div></article><article className="stat"><div><p>Folhas pendentes</p><strong>{professors.length - finished}<small>aguardando conclusão</small></strong><span>{progress} processando · {errors} com erro · {uploaded} enviadas · {notStarted} sem folha</span></div><div className="stat-icon neutral"><Clock3 /></div></article></section>
     {notStarted > 0 && <div className="pending-alert"><div><AlertCircle size={19} /><p><strong>{notStarted} professores</strong> ainda não enviaram a folha de {monthLabel(month).toLowerCase()}.</p></div><button onClick={() => { setFilter("Sem folha"); setQuery(""); document.getElementById("professor-table")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>Ver pendentes <ArrowRight size={16} /></button></div>}
-    <section className="table-card" id="professor-table"><div className="table-toolbar professor-toolbar"><label className="search-field"><Search size={18} /><Input placeholder="Buscar por nome ou matrícula" aria-label="Buscar por nome ou matrícula" value={query} onChange={e => setQuery(e.target.value)} />{query && <button aria-label="Limpar pesquisa" onClick={() => setQuery("")}><X size={16} /></button>}</label><select aria-label="Filtrar situação" value={filter} onChange={e => setFilter(e.target.value)}><option>Todas as situações</option><option>Identificada</option><option>Enviada</option><option>Processando</option><option>Erro na leitura</option><option>Sem folha</option></select>{view === "professores" && <Button variant="outline" onClick={() => { openProfessorEditor({ id: crypto.randomUUID(), name: "", registration: "", email: "", department: "", workload: null, sheets: {} }, true); }}><Plus size={16} />Adicionar professor</Button>}<span className="result-count">{visible.length} {visible.length === 1 ? "resultado" : "resultados"}</span></div><div className="table-scroll"><table><thead><tr><th>Matrícula</th><th>Professor</th><th>Documento</th><th>Situação da folha</th><th className="actions-head">Ações</th></tr></thead><tbody>{visible.map((p, i) => <tr key={p.id}><td className="registration">{p.registration}</td><td><button className="professor-cell" onClick={() => view === "folhas" ? openSheet(p, month) : openProfile(p)}><Avatar name={p.name} index={i} /><span><strong>{p.name}</strong><small>{p.department}</small></span></button></td><td className="hours-cell">{current(p)?.attachment.name || "—"}</td><td><StatusBadge value={sheetStatus(current(p))} /></td><td><div className="row-actions"><button className="text-action" onClick={() => view === "folhas" ? openSheet(p, month) : openProfile(p)}>{view === "folhas" ? "Abrir folha" : "Ver detalhes"}<ArrowRight size={14} /></button><button className="icon-button" aria-label={`Editar ${p.name}`} title="Editar professor" onClick={() => { openProfessorEditor({ ...p }); }}><Pencil size={16} /></button></div></td></tr>)}</tbody></table></div>{!visible.length && <div className="empty-state"><Search size={30} /><h3>Nenhum professor encontrado</h3><p>Tente outro nome, matrícula ou situação.</p><Button variant="outline" onClick={() => { setQuery(""); setFilter("Todas as situações"); }}>Limpar filtros</Button></div>}<footer className="table-footer"><span>Exibindo {visible.length} de {professors.length} professores</span><span>{monthLabel(month)}</span></footer></section></div>}
+    <section className="table-card" id="professor-table"><div className="table-toolbar professor-toolbar"><label className="search-field"><Search size={18} /><Input placeholder="Buscar por nome ou matrícula" aria-label="Buscar por nome ou matrícula" value={query} onChange={e => setQuery(e.target.value)} />{query && <button aria-label="Limpar pesquisa" onClick={() => setQuery("")}><X size={16} /></button>}</label><select aria-label="Filtrar situação" value={filter} onChange={e => setFilter(e.target.value)}><option>Todas as situações</option><option>Identificada</option><option>Enviada</option><option>Processando</option><option>Erro na leitura</option><option>Sem folha</option></select>{view === "professores" && <Button variant="outline" onClick={() => { openProfessorEditor({ id: crypto.randomUUID(), name: "", registration: "", email: "", department: "", sheets: {} }, true); }}><Plus size={16} />Adicionar professor</Button>}<span className="result-count">{visible.length} {visible.length === 1 ? "resultado" : "resultados"}</span></div><div className="table-scroll"><table><thead><tr><th>Matrícula</th><th>Professor</th><th>Documento</th><th>Situação da folha</th><th className="actions-head">Ações</th></tr></thead><tbody>{visible.map((p, i) => <tr key={p.id}><td className="registration">{p.registration}</td><td><button className="professor-cell" onClick={() => view === "folhas" ? openSheet(p, month) : openProfile(p)}><Avatar name={p.name} index={i} /><span><strong>{p.name}</strong><small>{p.department}</small></span></button></td><td className="hours-cell">{current(p)?.attachment.name || "—"}</td><td><StatusBadge value={sheetStatus(current(p))} /></td><td><div className="row-actions"><button className="text-action" onClick={() => view === "folhas" ? openSheet(p, month) : openProfile(p)}>{view === "folhas" ? "Abrir folha" : "Ver detalhes"}<ArrowRight size={14} /></button><button className="icon-button" aria-label={`Editar ${p.name}`} title="Editar professor" onClick={() => { openProfessorEditor({ ...p }); }}><Pencil size={16} /></button></div></td></tr>)}</tbody></table></div>{!visible.length && <div className="empty-state"><Search size={30} /><h3>Nenhum professor encontrado</h3><p>Tente outro nome, matrícula ou situação.</p><Button variant="outline" onClick={() => { setQuery(""); setFilter("Todas as situações"); }}>Limpar filtros</Button></div>}<footer className="table-footer"><span>Exibindo {visible.length} de {professors.length} professores</span><span>{monthLabel(month)}</span></footer></section></div>}
 
     {view === "perfil" && selected && <div className="view-enter"><button className="back-button" onClick={() => navigate("professores")}><ArrowLeft size={16} />Voltar para professores</button><div className="profile-heading"><div className="profile-name"><Avatar name={selected.name} /><div><p className="eyebrow">PERFIL DO PROFESSOR</p><h1>{selected.name}</h1><p>Matrícula {selected.registration}<span>·</span>{selected.email}</p></div></div><Button variant="outline" onClick={() => { openProfessorEditor({ ...selected }); }}><Pencil size={16} />Editar professor</Button></div><section className="stats profile-stats"><article className="stat"><div><p>Competência</p><strong className="date-stat">{monthLabel(month)}</strong><span>{current(selected)?.attachment.name || "Sem documento"}</span></div><div className="stat-icon"><FileText /></div></article><article className="stat"><div><p>Situação da folha</p><div className="status-stat"><StatusBadge value={sheetStatus(current(selected))} /></div><span>{current(selected)?.confirmedAt ? "Disponível para conferência" : "Aguardando conferência"}</span></div><div className="stat-icon soft"><FileText /></div></article><article className="stat"><div><p>Última atualização</p><strong className="date-stat">{current(selected)?.updatedAt ? new Date(current(selected)!.updatedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) : "—"}</strong><span>{monthLabel(month)}</span></div><div className="stat-icon neutral"><CalendarDays /></div></article></section><div className="section-heading"><div><h2>Histórico de folhas</h2><p>Todas as competências, em um só lugar.</p></div><Button onClick={() => openSend([selected.id])}><Mail size={16} />Enviar folha do mês</Button></div><section className="table-card"><div className="table-toolbar"><select aria-label="Ano do histórico" value={historyYear} onChange={e => setHistoryYear(e.target.value)}>{Array.from(new Set([...Object.keys(selected.sheets).map(k => k.slice(0, 4)), month.slice(0, 4)])).sort().reverse().map(y => <option key={y} value={y}>Ano: {y}</option>)}</select><Button variant="outline" onClick={() => openSheet(selected, month)}>Abrir competência atual</Button></div><div className="table-scroll"><table><thead><tr><th>Competência</th><th>Documento</th><th>Situação</th><th className="actions-head">Ações</th></tr></thead><tbody>{Array.from({ length: 12 }, (_, i) => `${historyYear}-${String(i + 1).padStart(2, "0")}`).map(m => { const s = selected.sheets[m]; return <tr key={m}><td><span className="month-cell"><FileText size={18} />{monthLabel(m)}</span></td><td className="hours-cell">{s?.attachment.name || "—"}</td><td><StatusBadge value={sheetStatus(s)} /></td><td><div className="row-actions"><button className="text-action" onClick={() => openSheet(selected, m)}>Abrir folha</button><button className="icon-button" aria-label={`Baixar folha de ${monthLabel(m)}`} disabled={!s?.attachment} onClick={() => downloadSheet(selected, m)}><Download size={16} /></button><button className="icon-button" aria-label={`Enviar folha de ${monthLabel(m)}`} onClick={() => openSend([selected.id], m)}><Mail size={16} /></button></div></td></tr>; })}</tbody></table></div></section></div>}
 
-    {view === "folha" && selected && <DocumentSheet key={`${selected.id}-${sheetMonth}`} professor={selected} professors={professors} month={sheetMonth} onMonth={setSheetMonth} onBack={() => setView("perfil")} onChange={setProfessors} onLinked={(id, period) => { setSelectedId(id); setSheetMonth(period); }} />}
+    {view === "folha" && selected && <DocumentSheet key={`${selected.id}-${sheetMonth}`} professor={selected} professors={professors} month={sheetMonth} onMonth={setSheetMonth} onBack={() => setView("perfil")} onChange={setProfessors} onLinked={(id, period) => { console.log("PROFESSOR VINCULADO:", id, period); setSelectedId(id); setSheetMonth(period); }} />}
     <footer className="workspace-footer"><span>UnDF · Gestão de ponto docente</span></footer></main></div></div></div>
 
-    <Sheet open={editOpen} onOpenChange={open => { if (!professorLock.current) setEditOpen(open); }}><SheetContent className="edit-sheet"><SheetHeader><span className="eyebrow">CADASTRO</span><SheetTitle>{isNewProfessor ? "Adicionar professor" : "Editar professor"}</SheetTitle><SheetDescription>{isNewProfessor ? "Preencha os dados de identificação e contato." : "Atualize os dados de identificação e contato."}</SheetDescription></SheetHeader>{edit && <form onSubmit={saveProfessor} className="edit-form" aria-busy={savingProfessor}><div className="edit-avatar"><Avatar name={edit.name} /></div><label>Nome completo<Input required maxLength={120} value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} /></label><label>Matrícula<Input required inputMode="numeric" pattern="[0-9]{4,16}" value={edit.registration} onChange={e => setEdit({ ...edit, registration: e.target.value })} /></label><label>E-mail institucional<Input required type="email" maxLength={254} value={edit.email} onChange={e => setEdit({ ...edit, email: e.target.value })} /></label><label>Área de atuação<Input value={edit.department} maxLength={100} onChange={e => setEdit({ ...edit, department: e.target.value })} /></label><label>Carga horária (horas)<Input type="number" min={1} max={2147483647} step={1} placeholder="Ex.: 40" value={edit.workload ?? ""} onChange={e => setEdit({ ...edit, workload: e.target.value === "" ? null : e.target.valueAsNumber })} /></label>{formError && <p className="form-error" role="alert">{formError}</p>}<div className="edit-form-footer"><Button type="button" variant="outline" disabled={savingProfessor} onClick={() => setEditOpen(false)}>Cancelar</Button><Button type="submit" disabled={savingProfessor}>{savingProfessor ? "Salvando…" : isNewProfessor ? "Adicionar professor" : "Salvar alterações"}</Button></div></form>}</SheetContent></Sheet>
+    <Sheet open={editOpen} onOpenChange={setEditOpen}><SheetContent className="edit-sheet"><SheetHeader><span className="eyebrow">CADASTRO</span><SheetTitle>{isNewProfessor ? "Adicionar professor" : "Editar professor"}</SheetTitle><SheetDescription>{isNewProfessor ? "Preencha os dados de identificação e contato." : "Atualize os dados de identificação e contato."}</SheetDescription></SheetHeader>{edit && <form onSubmit={saveProfessor} className="edit-form"><div className="edit-avatar"><Avatar name={edit.name} /></div><label>Nome completo<Input required maxLength={120} value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} /></label><label>Matrícula<Input required inputMode="numeric" pattern="[0-9]{4,16}" value={edit.registration} onChange={e => setEdit({ ...edit, registration: e.target.value })} /></label><label>E-mail institucional<Input required type="email" maxLength={254} value={edit.email} onChange={e => setEdit({ ...edit, email: e.target.value })} /></label><label>Área de atuação<Input value={edit.department} maxLength={100} onChange={e => setEdit({ ...edit, department: e.target.value })} /></label>{formError && <p className="form-error" role="alert">{formError}</p>}<div className="edit-form-footer"><Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button><Button type="submit">{isNewProfessor ? "Adicionar professor" : "Salvar alterações"}</Button></div></form>}</SheetContent></Sheet>
     <Dialog open={!!send} onOpenChange={open => !open && !batchLock.current && setSend(null)}>
       <DialogContent className="send-dialog" onEscapeKeyDown={event => { if (batchLock.current) event.preventDefault(); }} onInteractOutside={event => { if (batchLock.current) event.preventDefault(); }}>
         <DialogHeader><div className="dialog-icon"><Mail size={24} /></div><DialogTitle>{receipt ? "Lote na fila de envio" : "Enviar folhas do mês"}</DialogTitle><DialogDescription>{receipt ? "O serviço recebeu o lote. A entrega dos e-mails será processada em segundo plano." : "Uma única ação para enviar a folha de cada professor ao respectivo e-mail."}</DialogDescription></DialogHeader>
