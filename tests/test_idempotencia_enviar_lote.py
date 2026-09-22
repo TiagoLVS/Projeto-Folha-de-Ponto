@@ -22,13 +22,13 @@ class TestIdempotenciaEnviarLote(unittest.TestCase):
         mock_enviar,
         mock_listar,
     ):
-        mock_registrar.return_value = {"created": True, "payload_hash": "abc", "status": "PROCESSANDO"}
+        mock_registrar.return_value = {"created": True, "payload_hash": "5738a78b74ea9ab782a696bd5267d794880e8d4d4ef6ebdd0242a36959e89414", "status": "PROCESSANDO"}
         mock_listar.return_value = [{"id_folha": 1, "email": "a@a.com", "nome": "Ana", "caminho_arquivo": "x.pdf"}]
         mock_enviar.return_value = {"id_envio": 10, "status": "ENVIADO", "mensagem_erro": None}
 
         response = self.client.post(
             "/folhas/enviar-lote",
-            json={"month": "2026-09", "professorIds": [1, 2]},
+            json={"month": "2026-09", "professorIds": [1]},
             headers={"Idempotency-Key": "k1"},
         )
 
@@ -49,8 +49,8 @@ class TestIdempotenciaEnviarLote(unittest.TestCase):
         mock_listar,
     ):
         mock_registrar.side_effect = [
-            {"created": True, "payload_hash": "abc", "status": "CONCLUIDO", "response_body": {"jobId": "k1", "status": "completed", "sentCount": 1}, "response_status_code": 200},
-            {"created": False, "payload_hash": "abc", "status": "CONCLUIDO", "response_body": {"jobId": "k1", "status": "completed", "sentCount": 1}, "response_status_code": 200},
+            {"created": True, "payload_hash": "40130c2393baa23301834134758890b4d57ac57719e494d5c281b2d498419c31", "status": "CONCLUIDO", "response_body": {"jobId": "k1", "status": "completed", "sentCount": 1}, "response_status_code": 200},
+            {"created": False, "payload_hash": "40130c2393baa23301834134758890b4d57ac57719e494d5c281b2d498419c31", "status": "CONCLUIDO", "response_body": {"jobId": "k1", "status": "completed", "sentCount": 1}, "response_status_code": 200},
         ]
 
         response_1 = self.client.post(
@@ -102,7 +102,7 @@ class TestIdempotenciaEnviarLote(unittest.TestCase):
         mock_enviar,
         mock_listar,
     ):
-        mock_registrar.return_value = {"created": False, "payload_hash": "abc", "status": "PROCESSANDO"}
+        mock_registrar.return_value = {"created": False, "payload_hash": "40130c2393baa23301834134758890b4d57ac57719e494d5c281b2d498419c31", "status": "PROCESSANDO"}
 
         response = self.client.post(
             "/folhas/enviar-lote",
