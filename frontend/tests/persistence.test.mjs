@@ -92,3 +92,25 @@ test('resposta de sucesso incompleta não confirma vínculo na interface', async
   t.mock.method(globalThis, 'fetch', async () => Response.json({}));
   await assert.rejects(confirmDocument(77, '42', '2026-09'), /não confirmou/);
 });
+
+
+for (const status of ['ENVIADO', 'ERRO', 'PROCESSANDO', 'NAO_CONFIGURADO']) {
+  test(`confirmação preserva vínculo quando envio retorna ${status}`, async t => {
+    t.mock.method(globalThis, 'fetch', async () => Response.json({
+      id_folha: 77, id_servidor: 42, competencia: '2026-09', status_ocr: 'OK',
+      envio: { status, mensagem: 'Resultado do envio' },
+    }));
+    const result = await confirmDocument(77, '42', '2026-09');
+    assert.equal(result.status_ocr, 'OK');
+    assert.equal(result.envio.status, status);
+  });
+}
+
+test('confirmação sem resultado do e-mail não inventa sucesso de envio', async t => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    id_folha: 77, id_servidor: 42, competencia: '2026-09', status_ocr: 'OK',
+  }));
+  const result = await confirmDocument(77, '42', '2026-09');
+  assert.equal(result.status_ocr, 'OK');
+  assert.equal(result.envio.status, 'ERRO');
+});

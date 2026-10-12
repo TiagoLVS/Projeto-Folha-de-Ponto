@@ -3,6 +3,8 @@ import re
 import smtplib
 import math
 import mimetypes
+import hashlib
+import json
 
 from datetime import datetime
 from email.message import EmailMessage
@@ -252,3 +254,55 @@ def enviar_folha_do_banco(folha):
         "status": status,
         "mensagem_erro": erro
     }
+
+
+def enviar_apos_confirmacao(folha):
+    """Dispara uma vez por documento/vínculo/destinatário, após o commit."""
+    from backend.database.repository import (
+        registrar_requisicao_idempotente,
+        finalizar_requisicao_idempotente,
+    )
+    try:
+        remetente, _, modo_teste = carregar_configuracao_email()
+    except RuntimeError:
+        return {
+            "status": "NAO_CONFIGURADO",
+            "mensagem": "Vínculo salvo. Configure DIGEP_EMAIL e DIGEP_SENHA_APP no backend para enviar o e-mail.",
+        }
+    payload = {
+        "id_folha": folha["id_folha"],
+        "id_servidor": folha["id_servidor"],
+        "id_competencia": folha["id_competencia"],
+        "arquivo": folha["caminho_arquivo"],
+        "destinatario": remetente if modo_teste else folha["email"],
+        "modo_teste": modo_teste,
+    }
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    chave = f"confirmacao:{digest}"
+    registro = registrar_requisicao_idempotente(chave, digest, payload)
+    if not registro:
+        raise RuntimeError("Não foi possível reservar o envio automático.")
+    if not registro.get("created"):
+        if registro["status"] in {"CONCLUIDO", "ERRO"}:
+            return registro["response_body"]
+        return {
+            "status": "PROCESSANDO",
+            "mensagem": "Vínculo salvo. O envio anterior ainda não tem resultado confirmado. Consulte novamente sem criar outro envio.",
+        }
+    try:
+        resultado = enviar_folha_do_banco(folha)
+        enviado = resultado["status"] == "ENVIADO"
+    except Exception:
+        enviado = False
+    resposta = {
+        "status": "ENVIADO" if enviado else "ERRO",
+        "mensagem": (
+            "Vínculo salvo. E-mail enviado ao remetente em modo de teste."
+            if enviado and modo_teste else
+            "Vínculo salvo e e-mail enviado ao professor."
+            if enviado else
+            "Vínculo salvo, mas o envio falhou. Confira o histórico e as configurações antes de reenviar pelo botão de envio."
+        ),
+    }
+    finalizar_requisicao_idempotente(chave, "CONCLUIDO" if enviado else "ERRO", 200, resposta)
+    return resposta

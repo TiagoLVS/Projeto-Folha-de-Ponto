@@ -28,6 +28,8 @@ Em uma transação, o backend verifica folha e professor, obtém/cria a competê
 
 Uma folha já vinculada ao mesmo professor/competência impede a correção com HTTP 409, sem sobrescrever documentos. IDs inexistentes retornam 404; competência inválida ou anterior a 2000 retorna 422. Repetir a mesma confirmação é permitido.
 
+Depois de salvar o vínculo, o backend tenta enviar a folha por e-mail. A interface distingue falha de envio de falha de confirmação; o vínculo permanece salvo mesmo se o e-mail falhar.
+
 A interface só move o documento para o professor/competência escolhidos após o PATCH ser confirmado. Vínculos confirmados podem ser corrigidos pelo botão **Corrigir vínculo**. Confirmações antigas feitas apenas no navegador precisam ser confirmadas novamente para serem salvas no banco.
 
 O envio de e-mail consulta `folha_ponto`, `servidor` e `competencia` no PostgreSQL e, portanto, passa a usar o vínculo corrigido.
