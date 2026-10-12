@@ -50,6 +50,12 @@ class TestPersistencia(unittest.TestCase):
         self.addCleanup(self.connection.stop)
         with self.connect() as conn:
             conn.execute(Path('database/folha_pontos.sql').read_text())
+        config = patch.dict(os.environ, DIGEP_EMAIL='digep@example.com', DIGEP_SENHA_APP='test-only', DIGEP_MODO_TESTE='false')
+        config.start()
+        self.addCleanup(config.stop)
+        smtp = patch('backend.services.enviar_email.enviar_email', return_value=('ENVIADO', '', None))
+        self.smtp = smtp.start()
+        self.addCleanup(smtp.stop)
         self.payload = {'name': 'Ana', 'registration': '12345', 'email': 'ANA@EXEMPLO.COM', 'department': 'Ensino', 'workload': 40}
 
     def connect(self):
@@ -186,6 +192,17 @@ class TestPersistencia(unittest.TestCase):
             saved = repository.buscar_folha_para_envio(folha)
             self.assertEqual(Path(saved['caminho_arquivo']).read_bytes(), content)
             self.assertEqual(saved['status_ocr'], 'OK')
+            self.assertEqual(self.smtp.call_count, 1)
+            status, repeated = request('PATCH', f'/folhas/{folha}', {'id_servidor': person, 'competencia': '2026-09'})
+            self.assertEqual(status, 200)
+            self.assertEqual(repeated['envio']['status'], 'ENVIADO')
+            self.assertNotIn('_folha_envio', repeated)
+            self.assertEqual(self.smtp.call_count, 1)
+            with self.connect() as conn:
+                self.assertEqual(conn.execute('SELECT count(*) FROM envio WHERE id_folha = %s', (folha,)).fetchone()[0], 1)
+            status, corrected = request('PATCH', f'/folhas/{folha}', {'id_servidor': person, 'competencia': '2026-10'})
+            self.assertEqual(corrected['envio']['status'], 'ENVIADO')
+            self.assertEqual(self.smtp.call_count, 2)
 
 
 if __name__ == '__main__':

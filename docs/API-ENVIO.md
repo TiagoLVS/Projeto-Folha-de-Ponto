@@ -40,3 +40,9 @@ Bancos anteriores precisam de `database/migrations/001_idempotency_request.sql`.
 O tipo MIME é determinado pela extensão: PDF → `application/pdf`, JPG/JPEG → `image/jpeg`, PNG → `image/png`. As credenciais ficam no backend; `BACKEND_URL` fica no ambiente do servidor do frontend.
 
 O modo de teste de e-mail redireciona mensagens ao remetente; ele ainda envia mensagens reais. Os testes automatizados simulam SMTP.
+
+## Disparo na confirmação
+
+`PATCH /folhas/{id}` agora confirma o vínculo e dispara o e-mail depois do commit. A resposta mantém os campos de confirmação e acrescenta `envio: {status, mensagem}`. Status possíveis: `ENVIADO`, `NAO_CONFIGURADO`, `PROCESSANDO` e `ERRO`. Um problema no envio não desfaz o vínculo nem muda o sucesso da confirmação para erro HTTP.
+
+O arquivo e destinatário são capturados na transação da confirmação. A chave automática depende da folha, arquivo, professor, competência, destinatário efetivo e modo de teste. Repetir a confirmação recupera o resultado persistido, sem outro SMTP. Mudar o vínculo, documento ou destino permite novo envio. O modo de teste envia ao remetente. Configuração ausente não reserva uma chave: pode-se configurar e tentar novamente. Erros SMTP ou resultado incerto não geram reenvio automático; confira o histórico antes de um envio manual. Envios pelo botão de lote continuam independentes e podem reenviar uma folha já enviada automaticamente.

@@ -200,17 +200,19 @@ export function DocumentSheet({
     }
   }
 
-  async function confirm() {
+  async function confirm(recheck = false) {
     if (lock.current) return;
-    if (!sheet || !target || !/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(period) || Number(period.slice(0, 4)) < 2000) {
+    const targetId = recheck ? professor.id : target;
+    const targetPeriod = recheck ? month : period;
+    if (!sheet || !targetId || !/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(targetPeriod) || Number(targetPeriod.slice(0, 4)) < 2000) {
       setError('Selecione o professor e uma competência válida a partir de 2000.');
       return;
     }
-    const person = professors.find(p => p.id === target);
+    const person = professors.find(p => p.id === targetId);
     if (!person) { setError('Professor não encontrado. Recarregue a página.'); return; }
-    if (person.sheets[period] && person.sheets[period].id !== sheet.id) {
-      setConflict({ id: target, month: period });
-      setError(`Já existe uma folha para ${person.name} em ${monthLabel(period)}. Abra a competência existente para visualizar ou substituir; este documento foi preservado.`);
+    if (person.sheets[targetPeriod] && person.sheets[targetPeriod].id !== sheet.id) {
+      setConflict({ id: targetId, month: targetPeriod });
+      setError(`Já existe uma folha para ${person.name} em ${monthLabel(targetPeriod)}. Abra a competência existente para visualizar ou substituir; este documento foi preservado.`);
       return;
     }
 
@@ -224,10 +226,11 @@ export function DocumentSheet({
       const persisted = { ...sheet, backendId };
       // Guarde o ID mesmo quando a confirmação falhar, para permitir nova tentativa.
       update(persisted);
-      await confirmDocument(backendId, target, period);
+      const result = await confirmDocument(backendId, targetId, targetPeriod);
       const value: Sheet = {
         ...persisted,
         status: 'identified',
+        email: result.envio,
         identificationSource: manual ? 'manual' : sheet.identificationSource,
         confirmedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -236,11 +239,12 @@ export function DocumentSheet({
       onChange(ps => ps.map(p => {
         const sheets = { ...p.sheets };
         if (p.id === professor.id) delete sheets[month];
-        if (p.id === target) sheets[period] = value;
+        if (p.id === targetId) sheets[targetPeriod] = value;
         return { ...p, sheets };
       }));
-      toast.success('Vínculo salvo no servidor.');
-      onLinked(target, period);
+      if (result.envio?.status === 'ENVIADO') toast.success(result.envio.mensagem);
+      else toast.warning(result.envio?.mensagem ?? 'Vínculo salvo; envio não confirmado.');
+      onLinked(targetId, targetPeriod);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Não foi possível confirmar o vínculo. Tente novamente.');
     } finally {
@@ -599,6 +603,12 @@ export function DocumentSheet({
                       <p role="status">
                         <strong>Vínculo confirmado</strong>
                       </p>
+                      {sheet.email && <p role={sheet.email.status === 'ERRO' || sheet.email.status === 'NAO_CONFIGURADO' ? 'alert' : 'status'} className="email-note">{sheet.email.mensagem}</p>}
+                      {(!sheet.email || sheet.email.status === 'NAO_CONFIGURADO' || sheet.email.status === 'PROCESSANDO') && (
+                        <Button variant="outline" disabled={busy} onClick={() => void confirm(true)}>
+                          {busy ? 'Verificando envio…' : sheet.email?.status === 'PROCESSANDO' ? 'Consultar envio' : 'Tentar envio automático'}
+                        </Button>
+                      )}
 
                       <Button variant="outline" disabled={busy} onClick={() => {
                         setManual(true);
@@ -620,7 +630,7 @@ export function DocumentSheet({
                   ) : (
                     <>
                       <p>
-                        Aguardando confirmação. Confira o documento original antes de confirmar o vínculo.
+                        Confira o documento original. Ao confirmar o vínculo, o envio da folha por e-mail será iniciado.
                       </p>
 
                       <label>
@@ -668,9 +678,9 @@ export function DocumentSheet({
                           !target ||
                           !period
                         }
-                        onClick={confirm}
+                        onClick={() => void confirm()}
                       >
-                        {busy ? 'Salvando vínculo…' : 'Confirmar vínculo'}
+                        {busy ? 'Confirmando e enviando…' : 'Confirmar e enviar e-mail'}
                       </Button>
                     </>
                   )}

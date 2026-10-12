@@ -89,7 +89,7 @@ Abra http://localhost:5173 ou o endereço mostrado no terminal. Mantenha ambos o
 
 Professores são carregados do PostgreSQL e podem ser cadastrados/editados, inclusive com carga horária. A importação aceita apenas `.xlsx`, com as colunas dos exemplos em `data/entrada/`; o endpoint está disponível em `/docs`.
 
-Documentos PDF/JPG/PNG podem ser processados por OCR ou vinculados manualmente. A confirmação grava professor, competência e status no banco. Prévias e histórico visual ainda dependem do cache do navegador; não há sincronização completa dos documentos entre dispositivos.
+Documentos PDF/JPG/PNG podem ser processados por OCR ou vinculados manualmente. A confirmação grava professor, competência e status no banco e tenta enviar o e-mail automaticamente. A tela informa separadamente o resultado do vínculo e do envio. Prévias e histórico visual ainda dependem do cache do navegador; não há sincronização completa dos documentos entre dispositivos.
 
 Para enviar e-mails, configure `DIGEP_EMAIL` e `DIGEP_SENHA_APP`. Com `DIGEP_MODO_TESTE=true`, os e-mails são enviados **de verdade**, mas ao remetente configurado. Nenhum e-mail é enviado durante os testes automatizados.
 
@@ -111,3 +111,19 @@ Os testes reais de banco precisam de `FOLHA_TEST_DSN`, por exemplo `host=localho
 O GitHub Actions executa os testes Python com PostgreSQL, testes do frontend, TypeScript, lint e build em pushes e pull requests. O OCR nos testes é simulado ou testa o extrator textual; não avalia a precisão do Tesseract em documentos reais.
 
 Relatórios gerados (`relatorio_erros.xlsx`), caches e credenciais ficam fora do versionamento. Os arquivos de `data/entrada/` foram mantidos como exemplos; não coloque documentos reais de professores nessa pasta versionada.
+
+## Envio automático ao confirmar
+
+Configure no `.env` da raiz:
+
+```env
+DIGEP_EMAIL=seuemail@gmail.com
+DIGEP_SENHA_APP=sua_senha_de_app
+DIGEP_MODO_TESTE=true
+```
+
+O código usa Gmail SMTP SSL na porta 465. A senha de app depende da verificação em duas etapas e da disponibilidade desse recurso na conta Google. Consulte https://support.google.com/accounts/answer/185833?hl=pt-BR. Reinicie o backend depois de alterar o `.env`.
+
+Ao clicar **Confirmar e enviar e-mail**, o backend salva o vínculo e dispara a mensagem. `true` envia ao próprio remetente; use `false` para enviar ao professor cadastrado. Senhas ausentes não impedem salvar o vínculo: a tela avisa e permite tentar o envio após a configuração.
+
+A mesma confirmação não reenvia automaticamente. Outro arquivo, professor, competência, destinatário efetivo ou mudança de modo de teste cria um novo envio. Falhas SMTP ficam registradas e exigem conferência antes de um reenvio manual pelo botão existente. A tabela `idempotency_request` deve existir; use a migração documentada acima. O envio é síncrono, sem fila.

@@ -15,7 +15,7 @@ from backend.database.repository import (
     atualizar_servidor, confirmar_folha, criar_servidor,
     listar_folhas_para_envio, listar_servidores, salvar_folha,
 )
-from backend.services.enviar_email import enviar_folha_do_banco
+from backend.services.enviar_email import enviar_apos_confirmacao, enviar_folha_do_banco
 from backend.services.ler_planilha import importar_planilha
 from backend.services.processar_folha import armazenar_arquivo, processar_folha
 
@@ -150,7 +150,7 @@ def editar_servidor(id_servidor: int, payload: ServidorPayload):
 def corrigir_folha(id_folha: int, payload: ConfirmacaoFolhaPayload):
     ano, mes = map(int, payload.competencia.split("-"))
     try:
-        return confirmar_folha(id_folha, payload.id_servidor, mes, ano)
+        resultado = confirmar_folha(id_folha, payload.id_servidor, mes, ano)
     except LookupError as erro:
         raise HTTPException(status_code=404, detail=str(erro))
     except UniqueViolation:
@@ -158,6 +158,17 @@ def corrigir_folha(id_folha: int, payload: ConfirmacaoFolhaPayload):
             status_code=409,
             detail="Já existe uma folha para esse professor nessa competência. Nenhuma folha foi substituída.",
         )
+
+    folha = resultado.pop("_folha_envio")
+    try:
+        resultado["envio"] = enviar_apos_confirmacao(folha)
+    except Exception:
+        # A confirmação foi persistida; falha de envio não desfaz o vínculo.
+        resultado["envio"] = {
+            "status": "ERRO",
+            "mensagem": "Vínculo salvo, mas não foi possível confirmar o envio do e-mail. Confira o histórico e a configuração do servidor.",
+        }
+    return resultado
 
 
 @app.post("/folhas/processar")

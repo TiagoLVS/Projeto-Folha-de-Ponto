@@ -179,16 +179,18 @@ def confirmar_folha(id_folha, id_servidor, mes, ano):
     with conectar() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
-                "SELECT id_folha FROM folha_ponto WHERE id_folha = %s FOR UPDATE",
+                "SELECT id_folha, caminho_arquivo FROM folha_ponto WHERE id_folha = %s FOR UPDATE",
                 (id_folha,),
             )
-            if cursor.fetchone() is None:
+            folha = cursor.fetchone()
+            if folha is None:
                 raise LookupError("Folha não encontrada.")
             cursor.execute(
-                "SELECT id_servidor FROM servidor WHERE id_servidor = %s FOR KEY SHARE",
+                "SELECT id_servidor, nome, matricula, email FROM servidor WHERE id_servidor = %s FOR SHARE",
                 (id_servidor,),
             )
-            if cursor.fetchone() is None:
+            servidor = cursor.fetchone()
+            if servidor is None:
                 raise LookupError("Professor não encontrado.")
             cursor.execute("""
                 INSERT INTO competencia (mes, ano) VALUES (%s, %s)
@@ -204,7 +206,13 @@ def confirmar_folha(id_folha, id_servidor, mes, ano):
                 WHERE id_folha = %s
                 RETURNING id_folha, id_servidor, id_competencia, status_ocr
             """, (id_servidor, id_competencia, id_folha))
-            return {**cursor.fetchone(), "competencia": f"{ano:04d}-{mes:02d}"}
+            resultado = cursor.fetchone()
+            return {
+                **resultado,
+                "competencia": f"{ano:04d}-{mes:02d}",
+                # Snapshot interno do arquivo e destinatário, antes de liberar os locks.
+                "_folha_envio": {**folha, **servidor, **resultado},
+            }
 
 
 def criar_servidor(nome, matricula, email, departamento, carga_horaria=None):

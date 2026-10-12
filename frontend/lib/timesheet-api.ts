@@ -1,4 +1,4 @@
-import type { IdentifiedTimesheetData, Sheet } from './ponto';
+import type { ConfirmationEmail, IdentifiedTimesheetData, Sheet } from './ponto';
 
 export type ProcessedDocument = {
   backendId: number;
@@ -60,12 +60,15 @@ export async function confirmDocument(backendId: number, professorId: string, co
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id_servidor: Number(professorId), competencia: competence }),
   });
-  const data = await response.json() as { id_folha: number; id_servidor: number; competencia: string; status_ocr: 'OK'; detail?: unknown };
+  const data = await response.json() as { id_folha: number; id_servidor: number; competencia: string; status_ocr: 'OK'; envio?: ConfirmationEmail; detail?: unknown };
   if (!response.ok) {
     throw new Error(typeof data.detail === 'string' ? data.detail : 'Não foi possível confirmar o vínculo. Confira os dados.');
   }
   if (data.id_folha !== backendId || data.id_servidor !== Number(professorId) || data.competencia !== competence || data.status_ocr !== 'OK') {
     throw new Error('O servidor não confirmou o vínculo solicitado. Tente novamente.');
+  }
+  if (!data.envio || !['ENVIADO', 'ERRO', 'PROCESSANDO', 'NAO_CONFIGURADO'].includes(data.envio.status) || typeof data.envio.mensagem !== 'string') {
+    data.envio = { status: 'ERRO', mensagem: 'Vínculo salvo, mas o servidor não informou o resultado do e-mail.' };
   }
   return data;
 }
