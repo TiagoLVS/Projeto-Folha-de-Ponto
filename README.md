@@ -1,6 +1,6 @@
 # Sistema de Gestão de Folhas de Ponto — UnDF
 
-Aplicação para cadastrar professores, importar planilhas, reconhecer matrícula e competência em folhas de ponto e enviar os documentos por e-mail.
+Aplicação para cadastrar professores, importar planilhas, reconhecer matrícula e competência em folhas de ponto, enviar os documentos por e-mail, gerenciar o calendário acadêmico e gerar modelos de folhas em PDF.
 
 ## Estrutura
 
@@ -14,7 +14,7 @@ Aplicação para cadastrar professores, importar planilhas, reconhecer matrícul
 
 ## Pré-requisitos
 
-Python 3.12+, Node.js 22.13+ (CI usa 24), pnpm na versão de `frontend/package.json`, PostgreSQL e Tesseract com o idioma português.
+Python 3.12+, Node.js 22.13+ (CI usa 24), pnpm na versão de `frontend/package.json`, PostgreSQL 17+ com banco UTF-8 (CI usa 18) e Tesseract com o idioma português.
 
 No Ubuntu/Debian, instale as ferramentas necessárias:
 
@@ -50,15 +50,26 @@ Para um **banco novo e vazio**, crie as tabelas:
 psql -h localhost -U folha_app -d folha_pontos -v ON_ERROR_STOP=1 -f database/folha_pontos.sql
 ```
 
-Para um **banco já existente**, aplique somente a migração de idempotência:
+Para um **banco já existente**, faça backup e aplique as migrações incrementais:
 
 ```bash
 psql -h localhost -U folha_app -d folha_pontos -v ON_ERROR_STOP=1 -f database/migrations/001_idempotency_request.sql
+psql -h localhost -U folha_app -d folha_pontos -v ON_ERROR_STOP=1 -f database/migrations/002_atualizacao_calendario.sql
 ```
 
-A migração adiciona `idempotency_request` sem recriar professores, competências, folhas ou envios. Não execute o schema completo sobre um banco já inicializado.
+A primeira migração adiciona idempotência; a segunda adiciona calendário, importações e histórico dos modelos gerados. Nenhuma recria professores, competências, folhas ou envios. Confira o procedimento de backup, pré-requisitos e verificação em [Alterações do banco](docs/ALTERACOES-BANCO.md). Não execute o schema completo sobre um banco já inicializado.
 
 O limite padrão é 15 MB (`MAX_UPLOAD_BYTES=15728640`), igual ao da interface. Se mudar o limite no backend, ajuste também a validação do frontend. `CORS_ORIGINS` aceita origens separadas por vírgula; a origem local padrão é `http://localhost:5173`.
+
+## Iniciar com o script
+
+Depois de configurar os arquivos `.env` e instalar/atualizar o banco, na pasta onde está `iniciar.sh`:
+
+```bash
+bash iniciar.sh
+```
+
+O script inicia backend e frontend. Abra http://localhost:5173 (ou o endereço indicado no terminal). Use Ctrl+C para encerrar. Ele instala dependências se `.venv`/`node_modules` estiverem ausentes, mas **não cria nem migra o banco**. As instruções abaixo permitem iniciar os serviços separadamente.
 
 ## Iniciar o backend
 
@@ -94,6 +105,16 @@ Documentos PDF/JPG/PNG podem ser processados por OCR ou vinculados manualmente. 
 Para enviar e-mails, configure `DIGEP_EMAIL` e `DIGEP_SENHA_APP`. Com `DIGEP_MODO_TESTE=true`, os e-mails são enviados **de verdade**, mas ao remetente configurado. Nenhum e-mail é enviado durante os testes automatizados.
 
 O envio é síncrono. Cada lote exige `Idempotency-Key`; repetir a mesma chave e conteúdo recupera o resultado sem reenviar. Leia [o contrato de envio](docs/API-ENVIO.md) para os casos de timeout e envio parcial e [o fluxo de documentos](docs/FLUXO-DOCUMENTOS.md) para persistência e limitações.
+
+## Calendário acadêmico e geração de PDFs
+
+- **Calendário:** visualização mensal, seleção de dia, filtros por ano/mês/tipo, cadastro, edição e exclusão confirmada de datas especiais. Dados persistem no PostgreSQL.
+- **Importar Excel:** `.xlsx` de até 15 MB, com colunas `Data` e `Especificação`. Aceita data do Excel ou texto DD/MM/AAAA. O relatório informa novos, atualizados, ignorados e inválidos, com os motivos por linha. Duplicidade usa data + especificação normalizada; reimportar preserva a classificação manual.
+- **Gerar folhas:** escolha competência e de 1 a 100 professores. PDFs incluem cadastro, carga horária, dias, finais de semana e eventos do calendário, com horários/assinaturas em branco. O layout é provisório, identificado como tal; não foi encontrado modelo institucional oficial.
+- **Versões e downloads:** nova versão exige autorização explícita. PDFs ficam em `data/folhas/geradas/`; metadados e cópias dos dados/eventos ficam no PostgreSQL. Histórico remoto, PDF individual e ZIP permitem recuperar documentos sem depender do navegador.
+- A geração não executa OCR ou envio de e-mail e não substitui folhas recebidas. A tela de documentos mostra datas especiais da competência sem modificar os PDFs existentes.
+
+Consulte [Calendário e geração](docs/CALENDARIO-GERACAO.md) para regras completas, exemplos, endpoints e testes manuais; [Alterações do banco](docs/ALTERACOES-BANCO.md) para schema e migração; e [Relatório da implementação](docs/RELATORIO-REQUISITO-3.3.md) para escopo e validação.
 
 ## Verificação
 

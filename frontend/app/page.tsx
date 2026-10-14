@@ -9,13 +9,15 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast, Toaster } from "sonner";
 import { monthLabel, sheetStatus, type Professor, type Status } from "@/lib/ponto";
+import { AcademicCalendar } from "@/components/academic-calendar";
+import { SheetGeneration } from "@/components/sheet-generation";
 import { DocumentSheet } from "@/components/document-sheet";
 import { loadDocuments, persistDocuments } from "@/lib/document-storage";
 import { listProfessors, saveProfessor as saveProfessorOnServer } from "@/lib/professor-api";
 import { downloadSheet } from "@/lib/export-sheet";
 import { getBatchKey, sendSheetBatch, type BatchReceipt } from "@/lib/send-sheets";
 
-type View = "professores" | "folhas" | "perfil" | "folha";
+type View = "professores" | "folhas" | "perfil" | "folha" | "calendario" | "geracao";
 const INITIAL_MONTH = "2026-09";
 function Logo() { return <img className="undf-logo" src="/undf-logo.png" alt="UnDF — Universidade do Distrito Federal" width="600" height="426" />; }
 
@@ -35,8 +37,10 @@ function Navigation({ view, navigate }: { view: View; navigate: (v: View) => voi
   return <header className="floating-nav">
     <button className="nav-brand" onClick={() => navigate("professores")} aria-label="UnDF — início"><Logo /><span><strong>Ponto docente</strong><small>Gestão acadêmica</small></span></button>
     <nav className="nav-segments" aria-label="Navegação principal">
-      <button aria-current={view !== "folhas" ? "page" : undefined} onClick={() => navigate("professores")}><Users size={17} />Professores</button>
+      <button aria-current={["professores", "perfil", "folha"].includes(view) ? "page" : undefined} onClick={() => navigate("professores")}><Users size={17} />Professores</button>
       <button aria-current={view === "folhas" ? "page" : undefined} onClick={() => navigate("folhas")}><FileText size={17} />Folhas de ponto</button>
+      <button aria-current={view === "calendario" ? "page" : undefined} onClick={() => navigate("calendario")}><CalendarDays size={17} />Calendário</button>
+      <button aria-current={view === "geracao" ? "page" : undefined} onClick={() => navigate("geracao")}><FileText size={17} />Gerar folhas</button>
     </nav>
     <div className="nav-account"><span className="account-dot" /><span>Administração</span><Avatar name="Administração UnDF" /></div>
   </header>;
@@ -168,8 +172,10 @@ export default function Home() {
   }, [professors, month]);
 
   return <>{dataError && <div role="alert" className="form-error">{dataError} <Button onClick={() => { setDataError(""); setLoadAttempt(attempt => attempt + 1); }}>Tentar novamente</Button></div>}<div inert={loading || !storageReady || undefined}><div className="app-shell"><Navigation view={view} navigate={navigate} /><div className="app-main">
-    <header className="topbar"><div className="breadcrumb"><span>Gestão acadêmica</span><span className="slash">/</span><strong>{view === "professores" ? "Professores" : view === "folhas" ? "Folhas de ponto" : selected?.name}</strong></div><div className="topbar-right"><button aria-label="Ver professores sem folha" className="notification" onClick={() => { navigate("professores"); setFilter("Sem folha"); }}><Bell size={19} /><i /></button></div></header>
+    <header className="topbar"><div className="breadcrumb"><span>Gestão acadêmica</span><span className="slash">/</span><strong>{view === "professores" ? "Professores" : view === "folhas" ? "Folhas de ponto" : view === "calendario" ? "Calendário acadêmico" : view === "geracao" ? "Gerar folhas" : selected?.name}</strong></div><div className="topbar-right"><button aria-label="Ver professores sem folha" className="notification" onClick={() => { navigate("professores"); setFilter("Sem folha"); }}><Bell size={19} /><i /></button></div></header>
     <main className="workspace" id="main-content">
+    {view === "calendario" && <AcademicCalendar initialMonth={month} />}
+    {view === "geracao" && <SheetGeneration professors={professors} initialMonth={month} />}
     {(view === "professores" || view === "folhas") && <div className="view-enter"><div className="page-heading"><div><h1>{view === "folhas" ? "Folhas de ponto" : "Professores"}<span className="count-pill">{professors.length}</span></h1></div><div className="heading-actions"><label className="month-control"><CalendarDays size={17} /><input type="month" aria-label="Competência" min="2000-01" max="2099-12" value={month} onChange={e => /^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value) && setMonth(e.target.value)} /></label><Button onClick={() => openSend(professors.map(p => p.id))}><Send size={16} />Enviar folhas do mês</Button></div></div>
     <section className="stats" aria-label="Resumo mensal"><article className="stat"><div><p>Professores cadastrados</p><strong>{professors.length}<small>professores</small></strong><span>Todos os vínculos ativos</span></div><div className="stat-icon"><Users /></div></article><article className="stat"><div><p>Folhas identificadas</p><strong>{finished}<small>de {professors.length}</small></strong><span>{Math.round(finished / (professors.length || 1) * 100)}% do mês concluído</span></div><div className="stat-icon soft"><CheckCheck /></div><div className="stat-progress"><i style={{ width: `${finished / (professors.length || 1) * 100}%` }} /></div></article><article className="stat"><div><p>Folhas pendentes</p><strong>{professors.length - finished}<small>aguardando conclusão</small></strong><span>{progress} processando · {errors} com erro · {uploaded} enviadas · {notStarted} sem folha</span></div><div className="stat-icon neutral"><Clock3 /></div></article></section>
     {notStarted > 0 && <div className="pending-alert"><div><AlertCircle size={19} /><p><strong>{notStarted} professores</strong> ainda não enviaram a folha de {monthLabel(month).toLowerCase()}.</p></div><button onClick={() => { setFilter("Sem folha"); setQuery(""); document.getElementById("professor-table")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>Ver pendentes <ArrowRight size={16} /></button></div>}

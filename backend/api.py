@@ -29,7 +29,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "Idempotency-Key"],
 )
 
@@ -255,3 +255,10 @@ def enviar_lote(
     resposta = {"jobId": idempotency_key, "status": "completed", "sentCount": len(resultados)}
     finalizar_requisicao_idempotente(idempotency_key, "CONCLUIDO", 200, resposta)
     return JSONResponse(content=resposta, status_code=200)
+
+
+# Rotas novas mantidas em módulos separados; a importação reutiliza o limite existente.
+from backend.routes.calendario import criar_router as criar_router_calendario
+from backend.routes.geracao import router as router_geracao
+app.include_router(criar_router_calendario(salvar_planilha_temporaria))
+app.include_router(router_geracao)

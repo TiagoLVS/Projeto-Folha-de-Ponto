@@ -1,5 +1,7 @@
 "use client";
 
+import { PeriodEvents } from './period-events';
+
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { ArrowLeft, Download, FileText, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -294,6 +296,8 @@ export function DocumentSheet({
           />
         </label>
       </div>
+
+      <PeriodEvents month={month} />
 
       <p className="email-note">
         A prévia fica neste navegador. Ao processar ou confirmar o vínculo, o original é guardado no servidor. Mantenha uma cópia dos arquivos originais.

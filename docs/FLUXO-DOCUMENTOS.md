@@ -36,7 +36,7 @@ O envio de e-mail consulta `folha_ponto`, `servidor` e `competencia` no PostgreS
 
 ## Limites atuais
 
-As prévias e o histórico exibido ainda dependem do cache de documentos deste navegador. Ainda não há listagem/download remoto para reconstruir esse histórico em outro dispositivo. Limpar o cache não apaga os arquivos e vínculos já salvos no servidor, mas eles deixam de aparecer na interface local. **Remover cópia local** também não exclui o registro do banco. Conserve os originais.
+As prévias e o histórico das **folhas recebidas** ainda dependem do cache de documentos deste navegador. Ainda não há listagem/download remoto para reconstruir esse histórico em outro dispositivo. Limpar o cache não apaga os arquivos e vínculos já salvos no servidor, mas eles deixam de aparecer na interface local. **Remover cópia local** também não exclui o registro do banco. Conserve os originais.
 
 Autenticação, exclusão remota e sincronização do histórico entre dispositivos continuam fora deste fluxo. O OCR conserva o comportamento existente de atualizar a folha quando reconhece uma combinação professor/competência já registrada.
 
@@ -59,3 +59,9 @@ python -m unittest discover -s tests -v
 Para executar também a integração real, defina `FOLHA_TEST_DSN` com uma conexão PostgreSQL de testes. Cada teste cria e remove um schema exclusivo; não usa as tabelas da aplicação. Sem essa variável, os testes de integração são explicitamente ignorados.
 
 A integração cobre cadastro, listagem, edição, duplicidade, correção de OCR, leitura dos vínculos usados pelo envio, conflitos, validação e armazenamento manual do original. Não envia e-mails. A confirmação usa o schema existente. Para a idempotência de envio, aplique `database/migrations/001_idempotency_request.sql` em bancos anteriores.
+
+## Modelos gerados e calendário
+
+O requisito 3.3 adiciona consulta dos eventos da competência na tela de folha e geração de PDFs em branco. Os modelos ficam em `folha_gerada`, com versões e cópias do cadastro/calendário; não ocupam o registro único de `folha_ponto`. O histórico de geradas é remoto e permite PDF/ZIP. Isso não elimina a limitação de cache das folhas recebidas descrita acima.
+
+Gerar não executa OCR, confirma frequência ou dispara e-mail. Depois de preenchido, um modelo pode ser enviado como documento pelo fluxo normal. Consulte [Calendário e geração](CALENDARIO-GERACAO.md) para contratos e [Alterações do banco](ALTERACOES-BANCO.md) para instalação.
