@@ -1,6 +1,6 @@
 -- =====================================================
 -- SISTEMA DE GESTÃO DE FOLHAS DE PONTO - DIGEP
--- PostgreSQL
+-- PostgreSQL 17+; banco em UTF-8 (normalização Unicode determinística).
 -- =====================================================
 
 
@@ -224,3 +224,80 @@ CREATE INDEX idx_envio_folha
 
 CREATE INDEX idx_envio_status
     ON envio(status_envio);
+
+-- REQUISITO 3.3 — CALENDÁRIO E MODELOS GERADOS
+CREATE FUNCTION normalizar_especificacao(text) RETURNS text
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+AS $$ SELECT lower(normalize(btrim(regexp_replace($1 COLLATE pg_catalog."pg_c_utf8", '[[:space:]]+', ' ', 'g')), NFC) COLLATE pg_catalog."pg_c_utf8") $$;
+
+CREATE TABLE data_especial (
+    id_data_especial BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    data DATE NOT NULL,
+    especificacao VARCHAR(300) NOT NULL,
+    especificacao_normalizada TEXT GENERATED ALWAYS AS (normalizar_especificacao(especificacao)) STORED,
+    tipo VARCHAR(20) NOT NULL,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ck_data_especial_texto CHECK (length(normalizar_especificacao(especificacao)) > 0),
+    CONSTRAINT ck_data_especial_tipo CHECK (tipo IN ('FERIADO','RECESSO','PONTO_FACULTATIVO','OUTRO')),
+    CONSTRAINT uq_data_especial_identidade UNIQUE (data, especificacao_normalizada)
+);
+CREATE INDEX idx_data_especial_tipo_data ON data_especial(tipo, data);
+CREATE FUNCTION atualizar_data_especial_timestamp() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN NEW.atualizado_em = clock_timestamp(); RETURN NEW; END $$;
+CREATE TRIGGER trg_data_especial_atualizacao BEFORE UPDATE ON data_especial
+FOR EACH ROW EXECUTE FUNCTION atualizar_data_especial_timestamp();
+
+CREATE TABLE importacao_calendario (
+    id_importacao BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    nome_arquivo VARCHAR(255) NOT NULL,
+    sha256 CHAR(64) NOT NULL,
+    total INTEGER NOT NULL CHECK (total >= 0),
+    novos INTEGER NOT NULL CHECK (novos >= 0),
+    atualizados INTEGER NOT NULL CHECK (atualizados >= 0),
+    ignorados INTEGER NOT NULL CHECK (ignorados >= 0),
+    invalidos INTEGER NOT NULL CHECK (invalidos >= 0),
+    detalhes JSONB NOT NULL,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ck_importacao_contadores CHECK (total = novos + atualizados + ignorados + invalidos)
+);
+
+-- Modelos em branco são separados das folhas recebidas/preenchidas.
+-- A unicidade de folha_ponto e seus fluxos OCR/e-mail permanecem intactos.
+CREATE TABLE folha_gerada (
+    id_documento BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id_servidor BIGINT NOT NULL REFERENCES servidor(id_servidor) ON DELETE RESTRICT,
+    id_competencia BIGINT NOT NULL REFERENCES competencia(id_competencia) ON DELETE RESTRICT,
+    id_folha_referencia BIGINT REFERENCES folha_ponto(id_folha) ON DELETE SET NULL,
+    versao INTEGER NOT NULL CHECK (versao > 0),
+    origem VARCHAR(10) NOT NULL DEFAULT 'GERADA' CHECK (origem = 'GERADA'),
+    situacao VARCHAR(25) NOT NULL DEFAULT 'MODELO_EM_BRANCO' CHECK (situacao = 'MODELO_EM_BRANCO'),
+    modelo VARCHAR(50) NOT NULL DEFAULT 'provisorio-v1',
+    caminho_arquivo TEXT NOT NULL UNIQUE,
+    nome_arquivo VARCHAR(255) NOT NULL,
+    tamanho_bytes BIGINT NOT NULL CHECK (tamanho_bytes > 0),
+    sha256 CHAR(64) NOT NULL,
+    dados_professor JSONB NOT NULL,
+    gerado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_folha_gerada_versao UNIQUE (id_servidor, id_competencia, versao)
+);
+CREATE INDEX idx_folha_gerada_competencia ON folha_gerada(id_competencia, id_servidor);
+CREATE INDEX idx_folha_gerada_referencia ON folha_gerada(id_folha_referencia);
+
+-- Snapshot preservado mesmo após editar/excluir o evento do calendário.
+CREATE TABLE folha_gerada_evento (
+    id_documento BIGINT NOT NULL REFERENCES folha_gerada(id_documento) ON DELETE CASCADE,
+    ordem INTEGER NOT NULL CHECK (ordem >= 0),
+    id_data_especial BIGINT REFERENCES data_especial(id_data_especial) ON DELETE SET NULL,
+    data DATE NOT NULL,
+    especificacao VARCHAR(300) NOT NULL,
+    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('FERIADO','RECESSO','PONTO_FACULTATIVO','OUTRO')),
+    PRIMARY KEY (id_documento, ordem)
+);
+CREATE INDEX idx_folha_gerada_evento_origem ON folha_gerada_evento(id_data_especial);
+
+CREATE TABLE schema_migration (
+    versao VARCHAR(50) PRIMARY KEY,
+    aplicada_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO schema_migration(versao) VALUES ('002_calendario');

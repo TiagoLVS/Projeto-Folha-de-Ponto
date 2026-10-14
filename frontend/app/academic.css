@@ -1,0 +1,34 @@
+.academic-page { display: grid; gap: 22px; }
+.academic-panel { padding: 24px; border: 1px solid var(--border, #dfe5e5); border-radius: 16px; background: #fff; }
+.academic-panel h2, .calendar-detail h2 { font-size: 17px; font-weight: 650; margin-bottom: 10px; }
+.academic-panel p { margin: 10px 0; color: #536466; line-height: 1.6; }
+.academic-toolbar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+.academic-toolbar label, .academic-form label { display: grid; gap: 7px; font-size: 14px; }
+.academic-page select, .academic-form select { padding: 9px 12px; border: 1px solid #cbd5d5; border-radius: 8px; background: white; }
+.academic-form { display: grid; gap: 18px; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.calendar-weekday { text-align: center; padding: 8px 0; color: #536466; font-size: 13px; }
+.calendar-day { display: flex; flex-direction: column; gap: 5px; min-height: 95px; border: 1px solid #e0e7e7; padding: 8px; border-radius: 8px; text-align: left; background: white; overflow: hidden; }
+.calendar-day.is-weekend { background: #f3f6f6; }
+.calendar-day.is-selected { outline: 2px solid #176d66; outline-offset: -2px; background: #eef8f6; }
+.calendar-day:hover { border-color: #176d66; }
+.calendar-day .event-tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-tag { display: inline-block; padding: 3px 7px; border-radius: 5px; font-size: 12px; background: #e9edef; color: #33474b; }
+.type-FERIADO { background: #fbe8e6; color: #872f26; }
+.type-RECESSO { background: #e6edf9; color: #294e86; }
+.type-PONTO_FACULTATIVO { background: #fff1d3; color: #775512; }
+.calendar-detail { margin-top: 20px; padding-top: 16px; border-top: 1px solid #e0e7e7; }
+.academic-empty { padding: 24px; color: #536466; }
+.academic-panel ul { list-style: disc; padding-left: 22px; line-height: 1.8; }
+.import-report { margin-top: 18px; border-top: 1px solid #e0e7e7; padding-top: 12px; }
+.import-report ul { max-height: 320px; overflow: auto; }
+.import-report summary { cursor: pointer; }
+.check-label { display: flex !important; align-items: center; gap: 10px; }
+.check-label input, .academic-page td input { accent-color: #176d66; width: 17px; height: 17px; flex-shrink: 0; }
+.professor-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; max-height: 300px; overflow-y: auto; margin: 20px 0; }
+.professor-options label { padding: 12px; border: 1px solid #e0e7e7; border-radius: 8px; }
+.professor-options small, .academic-subtitle { display: block; color: #536466; font-size: 12px; margin-top: 4px; }
+.period-events { margin: 20px 0; }
+.floating-nav .nav-segments { grid-template-columns: repeat(4, minmax(110px, 1fr)); flex: 1 1 auto; }
+@media (max-width: 1050px) { .floating-nav .nav-segments { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .academic-panel { padding: 14px; } .calendar-day { min-height: 75px; padding: 4px; } .calendar-day .event-tag { font-size: 9px; padding: 2px; } .floating-nav { flex-wrap: wrap; } .floating-nav .nav-segments { order: 3; width: 100%; } }

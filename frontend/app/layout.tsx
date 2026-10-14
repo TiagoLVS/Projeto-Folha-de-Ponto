@@ -3,6 +3,7 @@ import "./globals.css";
 import "./glass.css";
 import "./desktop-glass.css";
 import "./clean-desktop.css";
+import "./academic.css";
 
 export const metadata: Metadata = {
   title: "Ponto Docente · UnDF",

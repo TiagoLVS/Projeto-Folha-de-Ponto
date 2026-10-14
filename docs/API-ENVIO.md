@@ -46,3 +46,7 @@ O modo de teste de e-mail redireciona mensagens ao remetente; ele ainda envia me
 `PATCH /folhas/{id}` agora confirma o vínculo e dispara o e-mail depois do commit. A resposta mantém os campos de confirmação e acrescenta `envio: {status, mensagem}`. Status possíveis: `ENVIADO`, `NAO_CONFIGURADO`, `PROCESSANDO` e `ERRO`. Um problema no envio não desfaz o vínculo nem muda o sucesso da confirmação para erro HTTP.
 
 O arquivo e destinatário são capturados na transação da confirmação. A chave automática depende da folha, arquivo, professor, competência, destinatário efetivo e modo de teste. Repetir a confirmação recupera o resultado persistido, sem outro SMTP. Mudar o vínculo, documento ou destino permite novo envio. O modo de teste envia ao remetente. Configuração ausente não reserva uma chave: pode-se configurar e tentar novamente. Erros SMTP ou resultado incerto não geram reenvio automático; confira o histórico antes de um envio manual. Envios pelo botão de lote continuam independentes e podem reenviar uma folha já enviada automaticamente.
+
+## Calendário e modelos em branco
+
+As novas rotas `/folhas/gerar` e `/folhas/gerar-lote` armazenam modelos em `folha_gerada` e não chamam os serviços de e-mail. As consultas de envio continuam usando `folha_ponto`. Eventos do calendário e PDFs gerados não aprovam frequência nem entram automaticamente no lote de envio. O envio ao confirmar uma folha recebida permanece como antes. Veja [Calendário e geração](CALENDARIO-GERACAO.md).

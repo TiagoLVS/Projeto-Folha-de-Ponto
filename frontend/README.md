@@ -25,8 +25,16 @@ Configure o `.env` da raiz com os dados do PostgreSQL, conforme `.env.example`. 
 
 ## Persistência e documentos
 
-Professores são listados, cadastrados e editados no PostgreSQL. A confirmação/correção de professor e competência de uma folha também é salva no backend. Prévias e histórico local de documentos permanecem no IndexedDB; não há sincronização desse histórico entre dispositivos.
+Professores são listados, cadastrados e editados no PostgreSQL. A confirmação/correção de professor e competência de uma folha também é salva no backend. Prévias e histórico local das folhas recebidas permanecem no IndexedDB; não há sincronização desse histórico entre dispositivos. O calendário e o novo histórico dos modelos gerados são carregados do PostgreSQL e independem desse cache.
 
 Consulte [o fluxo de documentos](../docs/FLUXO-DOCUMENTOS.md) para os contratos dos endpoints, limites e comandos de teste, e [a integração de envio](../docs/API-ENVIO.md) para o envio de e-mail.
 
 O envio é síncrono e informa quantas mensagens foram enviadas. O limite de documento é 15 MB. Para verificar: `pnpm test`, `pnpm exec tsc --noEmit --incremental false`, `pnpm lint` e `pnpm build`.
+
+## Calendário e modelos gerados
+
+A navegação possui **Calendário** (CRUD, filtros, visualização mensal e importação `.xlsx`) e **Gerar folhas** (seleção individual/lote, versões, histórico remoto e PDF/ZIP). `academic-api.ts` usa as rotas `/api/academic/...`; o proxy encaminha JSON, multipart e binários ao backend configurado em `BACKEND_URL`.
+
+Bancos existentes precisam da migração `002_atualizacao_calendario.sql`. Leia [Calendário e geração](../docs/CALENDARIO-GERACAO.md) e [Alterações do banco](../docs/ALTERACOES-BANCO.md). O novo layout é provisório e mantém horários/assinaturas em branco. Gerar não envia e-mail.
+
+Na raiz do repositório, `bash iniciar.sh` inicia os dois serviços após preparar o banco e os arquivos de ambiente.
