@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
+import pymupdf
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -179,6 +180,91 @@ async def processar_documento(arquivo: UploadFile = File(...)):
     finally:
         caminho.unlink(missing_ok=True)
 
+@app.post("/folhas/processar-lote")
+async def processar_documentos(arquivos: list[UploadFile] = File(...)):
+    if not arquivos:
+        raise HTTPException(
+            status_code=400,
+            detail="Envie pelo menos um arquivo PDF.",
+        )
+
+    caminhos = []
+
+    try:
+        # Etapa 1: validar os nomes e os tipos informados.
+        for arquivo in arquivos:
+            nome = Path(arquivo.filename or "").name
+
+            if not nome or Path(nome).suffix.lower() != ".pdf":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"O arquivo '{nome}' não é um PDF válido.",
+                )
+
+            if (
+                arquivo.content_type
+                and arquivo.content_type != "application/pdf"
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"O arquivo '{nome}' deve ter o tipo application/pdf.",
+                )
+
+        # Etapa 2: salvar todos os arquivos temporariamente.
+        for arquivo in arquivos:
+            caminho = await salvar_upload_temporario(arquivo)
+            caminhos.append((arquivo, caminho))
+
+    except Exception:
+        for _, caminho in caminhos:
+            caminho.unlink(missing_ok=True)
+        raise
+
+    finally:
+        # Fechar os arquivos recebidos, mesmo quando houver erro.
+        for arquivo in arquivos:
+            await arquivo.close()
+
+    # Etapa 3: processar cada PDF individualmente.
+    resultados = []
+
+    try:
+        for arquivo, caminho in caminhos:
+            nome = Path(arquivo.filename or "").name
+
+            try:
+                # Verificar se o conteúdo pode ser aberto como PDF.
+                with pymupdf.open(caminho) as documento:
+                    if not documento.is_pdf or documento.page_count < 1:
+                        raise ValueError("O arquivo não contém um PDF válido.")
+
+                resultado = processar_folha(caminho)
+
+                resultados.append({
+                    "arquivo": nome,
+                    "sucesso": True,
+                    "resultado": resultado,
+                })
+
+            except Exception as erro:
+                resultados.append({
+                    "arquivo": nome,
+                    "sucesso": False,
+                    "erro": str(erro),
+                })
+
+            finally:
+                caminho.unlink(missing_ok=True)
+
+    finally:
+        # Garantir a remoção de todos os temporários restantes.
+        for _, caminho in caminhos:
+            caminho.unlink(missing_ok=True)
+
+    return {
+        "quantidade": len(resultados),
+        "resultados": resultados,
+    }
 
 @app.post("/folhas/registrar", status_code=201)
 async def registrar_documento(arquivo: UploadFile = File(...)):
