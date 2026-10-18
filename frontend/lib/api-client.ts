@@ -1,3 +1,4 @@
+import { sessionHeaders } from './client-session.ts';
 import { mutationsBlocked, setNetworkLock } from './network-lock.ts';
 
 export class ApiError extends Error {
@@ -14,17 +15,17 @@ export class ApiError extends Error {
 /** Shared transport: no cached business records; only the backend decides locks. */
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = options.method ?? 'GET';
-  if (!['GET', 'HEAD'].includes(method) && mutationsBlocked()) {
+  if (!['GET', 'HEAD'].includes(method) && !path.startsWith('/api/system/lock') && mutationsBlocked()) {
     throw new ApiError('Alterações indisponíveis enquanto o sistema estiver bloqueado.', 423);
   }
-  const headers = new Headers(options.headers);
+  const headers = sessionHeaders(options.headers);
   if (typeof options.body === 'string') headers.set('Content-Type', 'application/json');
   const response = await fetch(path, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
   const data = response.status === 204 ? null : await response.json().catch(() => null);
   if (response.status === 423) setNetworkLock({ locked: true, unavailable: false, checked: true });
   if (!response.ok) {
     const message = typeof data?.detail === 'string' ? data.detail
-      : [404, 405, 501].includes(response.status) ? 'Este recurso ainda não está disponível no backend.'
+      : Array.isArray(data?.detail) ? data.detail.map((e: { msg?: string }) => e.msg ?? 'Dados inválidos').join('; ')
       : [401, 403].includes(response.status) ? 'Acesso negado. Entre com uma conta autorizada.'
       : 'Não foi possível concluir a operação no servidor.';
     throw new ApiError(message, response.status, data && typeof data === 'object' ? data : {});

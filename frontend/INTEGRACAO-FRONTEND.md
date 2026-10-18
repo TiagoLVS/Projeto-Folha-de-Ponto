@@ -1,137 +1,60 @@
-# Contratos de integração do frontend
+# Integração frontend ↔ FastAPI
 
-## Escopo
+Todas as telas utilizam o servidor. `PontoApp` carrega `/api/servers` e `/api/timesheets` e monta o histórico por professor/competência com `attachRemoteSheets`. Registros antigos incompletos são apresentados em Pendentes; PDFs multipágina têm candidatas persistentes. Não há fonte de dados demonstrativa ou IndexedDB no fluxo atual.
 
-Nenhum arquivo do backend ou SQL foi modificado. As rotas Next em `app/api/` são proxies HTTP para FastAPI; não acessam PostgreSQL diretamente. `BACKEND_URL` permanece no servidor Next e não é exposta ao navegador.
+## Contratos
 
-O proxy conserva `Authorization`, cookies, `Idempotency-Key` e `If-Match`; mantém status HTTP, inclusive 204, 409 e 423, e respostas binárias. Todos os GET usam `no-store`. Cabeçalhos de autenticação só têm efeito se o backend os verificar.
+| Frontend | FastAPI |
+|---|---|
+| GET/POST `/api/servers` | GET/POST `/servidores` |
+| PUT/DELETE `/api/servers/{id}` | PUT/DELETE `/servidores/{id}` |
+| POST `/api/servers/import/preview` | POST `/servidores/importar/preview` |
+| POST `/api/servers/import/confirm` | POST `/servidores/importar/confirm` |
+| GET `/api/timesheets?id_servidor=...` | GET `/folhas?id_servidor=...` |
+| POST `/api/timesheets/upload` | POST `/folhas/upload` |
+| GET `/api/timesheets/{id}/file` | GET `/folhas/{id}/arquivo` |
+| DELETE/PATCH `/api/timesheets/{id}` | DELETE/PATCH `/folhas/{id}` |
+| POST `/api/timesheets/{id}/process` | POST `/folhas/{id}/processar` |
+| GET `/api/timesheets/pending` | GET `/folhas/pendentes` |
+| GET `/api/timesheets/packages` | GET `/folhas/pacotes` |
+| POST `/api/timesheets/{id}/pages/{page}/import` | POST `/folhas/{id}/paginas/{page}/importar` |
+| POST `/api/timesheets/send` | POST `/folhas/enviar-lote` |
+| `/api/academic/datas-especiais...` | `/datas-especiais...` |
+| `/api/academic/folhas/gerar...` e `/geradas...` | `/folhas/gerar...` e `/folhas/geradas...` |
+| GET `/api/emails` | GET `/emails/historico` |
+| POST `/api/emails/retry` | POST `/emails/reenviar-erros` |
+| GET/DELETE `/api/system/lock` | GET/DELETE `/sistema/lock` |
+| POST `/api/system/lock/acquire` | POST `/sistema/lock/adquirir` |
+| POST `/api/system/lock/renew` | POST `/sistema/lock/renovar` |
 
-## Mapeamento exato
+`backend-proxy.ts` preserva JSON, multipart, arquivos, status 204, Idempotency-Key e X-Client-Id. `api-client.ts` utiliza o identificador de sessão e bloqueia mutações quando outro cliente possui o lease. A família acadêmica utiliza o mesmo proxy e o mesmo identificador. Os antigos contratos `registerDocument`, `/api/calendar` e o cache de documentos foram removidos após a consolidação.
 
-| Método | Rota do frontend | Endpoint FastAPI | Situação no ZIP recebido |
-| --- | --- | --- | --- |
-| GET/POST | `/api/servers` | `/servidores` | Existente |
-| PUT | `/api/servers/:id` | `/servidores/:id` | Existente |
-| DELETE | `/api/servers/:id` | `/servidores/:id` | Necessário |
-| POST | `/api/servers/import/preview` | `/servidores/importar/preview` | Necessário |
-| POST | `/api/servers/import/confirm` | `/servidores/importar/confirm` | Necessário |
-| GET | `/api/timesheets` | `/folhas` | Necessário |
-| POST | `/api/timesheets/upload` | `/folhas/upload` | Necessário |
-| GET | `/api/timesheets/:id/file` | `/folhas/:id/arquivo` | Necessário |
-| DELETE | `/api/timesheets/:id` | `/folhas/:id` | Necessário |
-| POST | `/api/timesheets/:id/process` | `/folhas/:id/processar` | Necessário |
-| PATCH | `/api/timesheets/:id` | `/folhas/:id` | Existente; resposta precisa incluir metadados remotos; sobrescrita precisa ser suportada |
-| POST | `/api/timesheets/send` | `/folhas/enviar-lote` | Existente; deve revalidar aptidão na transação do envio |
-| GET/POST | `/api/calendar` | `/calendario` | Necessário |
-| PUT/DELETE | `/api/calendar/:id` | `/calendario/:id` | Necessário |
-| GET | `/api/emails` | `/emails/historico` | Necessário |
-| POST | `/api/emails/retry` | `/emails/reenviar-erros` | Necessário |
-| GET | `/api/system/lock` | `/sistema/lock` | Necessário |
+## Tipos e validação
 
-Os endpoints antigos de `/folhas/registrar` e `/folhas/processar` foram preservados como proxies PDF, mas a nova interface não os usa: registrar ignora os campos de vínculo e o OCR antigo pode sobrescrever um professor/mês antes de uma confirmação. Chamá-los como se já suportassem a nova regra criaria registros órfãos ou substituiria arquivos sem autorização.
+`Professor` inclui CPF normalizado/nulo legado e acumulação de cargo. Novo cadastro exige CPF; o formulário permite máscara. Busca inclui CPF e nome sem acentos. A importação exibe CPF, ação e motivo. Confirmar envia somente token e chave idempotente; o servidor revalida os dados.
 
-## Formato de uma folha remota
+`RemoteSheet` inclui ID, vínculo, competência, status OCR, tamanho, datas, confirmação, leitura, mensagem e último envio. A prévia/download usa o ID; nenhum caminho de disco é enviado pelo navegador. OCR altera a mesma folha e informa candidatas por página. Confirmação só é reconhecida com vínculo solicitado, status OK e timestamp do servidor.
 
-`GET /folhas` retorna um array completo, sem depender de arquivos do navegador. O filtro opcional `id_servidor` limita a consulta. Se o backend adotar paginação, o cliente deve buscar todas as páginas antes de montar o histórico.
+`TimesheetUpload` aceita até 20 PDFs, valida cada item e permite continuar com os demais. O conflito exige confirmação; outro conflito concorrente exige nova consulta/autorização. A nova revisão recebe outro ID. A contagem de envio é formada pelos mesmos IDs enviados e revalidada remotamente antes do POST; o backend também verifica aptidão.
 
-```json
-{
-  "id_folha": 77,
-  "id_servidor": 42,
-  "competencia": "2026-10",
-  "status_ocr": "OK",
-  "nome_arquivo": "folha_outubro.pdf",
-  "tamanho_arquivo": 123456,
-  "atualizado_em": "2026-10-12T18:00:00Z",
-  "confirmado_em": "2026-10-12T18:00:00Z",
-  "matricula": "12345",
-  "servidor": { "nome": "Ana Silva" },
-  "mensagem": null,
-  "envio": { "status": "ENVIADO", "mensagem": "Envio confirmado." }
-}
-```
+## Lease e erros
 
-Campos de identificação, mensagem e envio são opcionais. `confirmado_em` é nulo até a conferência; não se deve inferir confirmação humana a partir da leitura automática. As datas devem ser ISO 8601, com fuso. Só uma folha ativa por servidor/competência é permitida.
+`SystemLock` consulta o lease, adquire/renova e tenta liberar no pagehide. Sessões usam UUID em sessionStorage; o PostgreSQL decide o holder. Lease expira após 45 segundos e é renovado a cada 10 segundos; mutações em andamento mantêm o controle até terminar. GETs continuam disponíveis. 423 indica outro holder, 409 conflito, 422 dados inválidos, 410 prévia expirada. Lease não substitui autenticação.
 
-`GET /folhas/:id/arquivo` retorna o PDF original, com `Content-Type: application/pdf` e nome seguro em `Content-Disposition`. Deve verificar autorização e impedir caminhos arbitrários. `DELETE /folhas/:id` retorna 204 somente após a remoção do arquivo e registro ser concluída; em falha não deve declarar sucesso.
+Testes Node exercitam os clientes/proxy e seus erros. TypeScript/lint/build verificam componentes e rotas. A homologação no navegador usa PostgreSQL temporário, sem credenciais SMTP reais.
 
-### Upload e sobrescrita
+## Refinamentos de geração, calendário e cadastro
 
-`POST /folhas/upload`: multipart com `arquivo`, `id_servidor`, `competencia`, `sobrescrever` (`true`/`false`) e, somente na substituição, `id_folha_existente`. Recebe `Idempotency-Key` e retorna o registro remoto completo com 201/200.
+GET `/api/academic/folhas/configuracao` retorna os limites efetivos do backend. A tela de geração consulta essa configuração, impede seleção acima do máximo e não recorta o botão Selecionar todos. Os padrões são 500 para geração/download e 250 MiB para ZIP. `academic-limits.ts` centraliza os prazos de cliente/proxy: comum 65 s, geração 900 s, ZIP 180 s e calendário 660 s.
 
-Sem `sobrescrever=true`, uma duplicidade retorna 409, sem alterar o original. Na sobrescrita, o backend deve conferir atomicamente se o ID ainda corresponde à folha ativa daquele servidor/mês. Uma substituição deve gerar nova identidade de folha, ou utilizar uma versão equivalente no contrato, para que o ID esperado detecte outra substituição concorrente. Se o registro mudou, retorna 409 e exige nova confirmação.
+A importação de calendário aceita `.xlsx` e `.pdf`, validando extensão, MIME e tamanho. Excel mantém gravação/relatório atuais. PDF retorna ImportReport com status PREVIA, token, válidos e detalhes com página/texto/origem/datas. A confirmação usa POST `/api/academic/datas-especiais/importar/confirm`, somente token e Idempotency-Key; resultados e falhas ficam visíveis. Rejeitar/descartar uma prévia não importa datas. OCR é executado exclusivamente no backend e reaproveita Tesseract existente.
 
-A substituição deve guardar o novo arquivo com segurança, atualizar o vínculo em uma transação, invalidar validação/envio anterior (`REVISAR`, `confirmado_em=null`), e remover o antigo apenas após a persistência. Uma falha não pode apagar o original nem reutilizar confirmação anterior. O frontend nunca emula essa operação com DELETE seguido de POST.
+Cadastro/edição envia workload como inteiro 20/40 e acumula_cargo como booleano, conservando CPF. Selects de jornada/acumulação ficam em duas colunas no desktop e uma no mobile. API e CHECK no PostgreSQL também rejeitam outras jornadas. Legados sem jornada podem ser listados e corrigidos; o formulário solicita uma seleção válida ao salvar.
 
-PDF estrito também é aplicado nas rotas Next; o backend deve conferir conteúdo, tamanho e extensão novamente. A assinatura `%PDF-` é uma checagem de formato, não uma inspeção de segurança do conteúdo.
+### Substituição anual do calendário
 
-### OCR e validação
+`importCalendar` aceita a opção replaceYear, enviando modo=substituir e ano em multipart. A prévia informa modo, ano, existentes_a_remover, pode_confirmar e motivo_bloqueio. O componente solicita confirmação explícita antes de enviar o token ao endpoint de confirmação existente. O resultado mostra removidos. Excel sem essa opção mantém importação imediata; PDF normal mantém a prévia anterior. O backend bloqueia substituição com erro, arquivo vazio ou datas fora do ano e detecta mudança do calendário desde a prévia. A transação preserva outros anos e snapshots/PDFs; não há migração nova.
 
-`POST /folhas/:id/processar`: processa o arquivo existente por ID e retorna metadados completos. Não cria outro registro nem substitui automaticamente outra competência. O resultado da leitura alimenta a conferência; não confirma o vínculo por conta própria.
+### E-mail dos modelos em branco
 
-`PATCH /folhas/:id` recebe o payload atual:
-
-```json
-{ "id_servidor": 42, "competencia": "2026-10" }
-```
-
-Para substituir outro vínculo após AlertDialog, recebe também `sobrescrever: true` e `id_folha_existente`. Retorna a folha remota completa, com `status_ocr: "OK"` e `confirmado_em`. O backend atual rejeita esses campos adicionais com 422; a tela preserva o documento e informa o erro. O envio automático já existente após PATCH é informado na confirmação; a opção em lote continua restrita à seleção explícita.
-
-## Importação sem CPF
-
-Não chamar `/servidores/importar` para obter prévia: essa operação antiga já grava e exige CPF.
-
-`POST /servidores/importar/preview`: multipart `arquivo` `.xlsx`, até 15 MB. Deve analisar, validar e comparar a matrícula com PostgreSQL **sem gravar cadastros**. Colunas: Nome, Matrícula, E-mail; opcionalmente Departamento e Carga Horária. CPF não é exigido nem retornado. Preserve a matrícula como texto, incluindo zeros iniciais.
-
-```json
-{
-  "token": "token-opaco-de-previa",
-  "expira_em": "2026-10-12T18:30:00Z",
-  "registros": [
-    { "linha": 2, "nome": "Ana Silva", "matricula": "12345", "email": "ana@example.com", "acao": "novo" },
-    { "linha": 3, "nome": "Bruno Lima", "matricula": "54321", "email": "bruno@example.com", "acao": "atualizado", "motivo": "E-mail alterado" },
-    { "linha": 4, "nome": "Carlos", "matricula": "", "acao": "ignorado", "motivo": "Matrícula ausente" }
-  ]
-}
-```
-
-Cada linha deve ser única. Registros iguais, inválidos ou duplicados na planilha são ignorados com motivo. `POST /servidores/importar/confirm` recebe `{ "token": "..." }` e `Idempotency-Key`; retorna `{ "novos": 1, "atualizados": 1, "ignorados": 1 }`. O token é vinculado ao usuário, expira e precisa conservar os registros aprovados. Se houver mudança concorrente entre prévia e confirmação, devolver 409 e solicitar nova prévia. Não confiar em contagens ou decisões enviadas pelo cliente.
-
-`DELETE /servidores/:id` retorna 204 após excluir. Com vínculos protegidos, deve retornar 409 com mensagem explicativa; não apagar documentos associados por cascata sem uma política explícita.
-
-## Calendário acadêmico
-
-`GET /calendario`: array de objetos `{ id, titulo, tipo, inicio, fim }`.
-`POST /calendario` e `PUT /calendario/:id`: corpo sem `id`, resposta com o objeto salvo. Tipos: `FERIADO`, `RECESSO`, `PONTO_FACULTATIVO`. Datas `YYYY-MM-DD`, intervalo inclusivo, fim ≥ início. `DELETE /calendario/:id`: 204.
-
-## E-mails
-
-`POST /folhas/enviar-lote` conserva `{ "month": "2026-10", "professorIds": ["42"] }`, `Idempotency-Key` e recibo `{ "jobId": "...", "status": "completed", "sentCount": 1 }`. O frontend só declara sucesso com o recibo completo. Timeout mantém a chave para consultar o mesmo lote. Sucesso libera a chave de sessão para um novo envio deliberado.
-
-O backend precisa verificar folha vinculada e `status_ocr=OK` novamente ao enviar; a checagem do frontend não protege chamadas diretas à API. Aceitação pelo serviço de e-mail não garante entrega na caixa do destinatário.
-
-`GET /emails/historico` aceita filtros opcionais `nome`, `matricula`, `status`, `competencia` e retorna array de:
-
-```json
-{
-  "id": 100,
-  "id_folha": 77,
-  "nome": "Ana Silva",
-  "matricula": "12345",
-  "competencia": "2026-10",
-  "status": "ERRO",
-  "criado_em": "2026-10-12T18:00:00Z",
-  "mensagem": "Falha de conexão."
-}
-```
-
-Status de envio: `ENVIADO`, `ERRO`, `PROCESSANDO`, `NAO_CONFIGURADO`.
-`POST /emails/reenviar-erros`: `{ "log_ids": [100] }`, com `Idempotency-Key`; retorna `{ "reenviados": 1, "ignorados": 0 }`. Revalidar aptidão, existência da folha e status do último envio; deduplicar por folha e evitar reenviar um sucesso mais recente por causa de um log antigo de erro. O backend deve registrar o resultado de cada tentativa.
-
-## Concorrência e lock
-
-`GET /sistema/lock`: `{ "locked": false }` ou `{ "locked": true }`, relativo ao usuário autenticado. Não expor dados pessoais do proprietário do lock. Mutações devem retornar 423 quando o usuário não tiver o acesso exclusivo; a leitura pode permanecer disponível.
-
-A decisão deve ser atômica no backend e proteger cadastro/edição/exclusão, importação, upload, validação, processamento, calendário e envio. Lock de memória ou booleano no navegador não sincroniza máquinas. Se houver lease, o backend deve cuidar de expiração e recuperação; este frontend apenas consulta o estado, não cria um lock distribuído.
-
-404/405/501 no endpoint significa recurso ausente. Falha de verificação bloqueia mutações e mostra indisponibilidade; apenas `locked: true` ou 423 mostra “Sistema em uso por outro usuário”.
+GeneratedEmailBatch usa o proxy acadêmico: GET /folhas/geradas/para-envio e POST /folhas/geradas/enviar-lote. Uma ação inicia chamadas sequenciais com um ID por chamada, chave estável e renovação do lease, progresso agregado e retomada. Prévia e validações vêm do servidor; só versões mais recentes e elegíveis são enviadas. O histórico aceita id_folha NULL quando id_documento está informado e mostra origem GERADA/RECEBIDA e destinatário. O reenvio de erros utiliza o endpoint já existente. Não é necessário executar OCR para os modelos. A regra de confirmação de recebidas não foi removida.

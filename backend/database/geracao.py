@@ -23,7 +23,7 @@ def preparar_geracao(cur, payload):
     versao = cur.fetchone()['versao']
     if versao and not payload.nova_versao:
         raise ConflitoGeracao('Já existe um modelo gerado. Marque Gerar nova versão para preservar o anterior e criar outro.')
-    cur.execute('SELECT id_folha FROM folha_ponto WHERE id_servidor=%s AND id_competencia=%s', (payload.id_servidor, competencia))
+    cur.execute('SELECT id_folha FROM folha_ponto WHERE id_servidor=%s AND id_competencia=%s AND ativo', (payload.id_servidor, competencia))
     referencia = cur.fetchone()
     eventos = listar_datas(FiltrosCalendario(ano=ano, mes=mes), cur)
     return professor, competencia, versao + 1, referencia['id_folha'] if referencia else None, eventos

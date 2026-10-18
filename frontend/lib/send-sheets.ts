@@ -1,3 +1,5 @@
+import { newId } from './client-session.ts';
+import { validEmail } from './ponto.ts';
 import { apiRequest } from './api-client.ts';
 import { attachRemoteSheets, canEmailSheet, listTimesheets, validMonth } from './timesheet-api.ts';
 import { listProfessors } from './professor-api.ts';
@@ -9,8 +11,8 @@ export function getBatchKey(batch: SheetBatch): string {
     const storageKey = `ponto-docente:envio:${signature(batch)}`;
     const saved = sessionStorage.getItem(storageKey);
     if (saved) return saved;
-    const key = crypto.randomUUID(); sessionStorage.setItem(storageKey, key); return key;
-  } catch { return crypto.randomUUID(); }
+    const key = newId(); sessionStorage.setItem(storageKey, key); return key;
+  } catch { return newId(); }
 }
 function finishBatch(batch: SheetBatch) {
   try { sessionStorage.removeItem(`ponto-docente:envio:${signature(batch)}`); } catch { /* Storage is optional. */ }
@@ -20,7 +22,7 @@ export async function sendSheetBatch(batch: SheetBatch, idempotencyKey: string):
   // Revalidate against remote records just before sending; a prior screen snapshot is insufficient.
   const [people, documents] = await Promise.all([listProfessors(), listTimesheets()]);
   const records = attachRemoteSheets(people, documents);
-  if (batch.professorIds.some(id => !records.some(p => p.id === id && p.email && canEmailSheet(p.sheets[batch.month])))) throw new Error('Uma ou mais folhas não estão validadas e vinculadas. Atualize o histórico antes de enviar.');
+  if (batch.professorIds.some(id => !records.some(p => p.id === id && validEmail(p.email) && canEmailSheet(p.sheets[batch.month])))) throw new Error('Uma ou mais folhas não estão validadas e vinculadas. Atualize o histórico antes de enviar.');
   try {
     const data = await apiRequest<BatchReceipt>('/api/timesheets/send', {
       method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(batch), signal: AbortSignal.timeout(20000),

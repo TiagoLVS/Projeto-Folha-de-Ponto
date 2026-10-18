@@ -1,5 +1,7 @@
 # Relatório da implementação — requisito 3.3
 
+> Registro histórico da etapa anterior. A integração atual e o modelo institucional conferido com o DOCX estão em [RELATORIO-INTEGRACAO.md](RELATORIO-INTEGRACAO.md). As descrições abaixo retratam o estado daquela entrega.
+
 Implementação local na branch `feat/calendario-academico`. Não houve push, merge, alteração de `main`, execução de migração no banco real ou envio real de e-mail.
 
 ## 1. Resumo geral

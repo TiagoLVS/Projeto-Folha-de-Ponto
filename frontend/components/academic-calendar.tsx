@@ -1,72 +1,111 @@
 'use client';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { CalendarDays, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ConfirmationDialog } from '@/components/confirmation-dialog';
-import { useSystemLock } from '@/components/system-lock';
-import { deleteCalendar, listCalendar, saveCalendar, type CalendarDraft, type CalendarEntry } from '@/lib/calendar-api';
-import { toast } from 'sonner';
-const labels = { FERIADO: 'Feriado', RECESSO: 'Recesso', PONTO_FACULTATIVO: 'Ponto facultativo' };
-const empty: CalendarDraft = { titulo: '', tipo: 'FERIADO', inicio: '', fim: '' };
-const displayDate = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString('pt-BR');
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { ConfirmationDialog } from './confirmation-dialog';
+import { newId } from '@/lib/client-session';
+import type { AcademicSettings } from '@/lib/academic-limits';
+import { useSystemLock } from './system-lock';
+import { confirmCalendar, getAcademicSettings, deleteEvent, eventTypes, importCalendar, listEvents, saveEvent, type AcademicEvent, type EventInput, type EventType, type ImportReport } from '@/lib/academic-api';
+
 export function AcademicCalendar() {
-  const [entries, setEntries] = useState<CalendarEntry[]>([]);
-  const [loadError, setLoadError] = useState('');
-  const [attempt, setAttempt] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState<CalendarDraft>(empty);
-  const [editingId, setEditingId] = useState<number>();
-  const [open, setOpen] = useState(false);
-  const [removing, setRemoving] = useState<CalendarEntry | null>(null);
-  const [error, setError] = useState('');
+  const [settings,setSettings] = useState<AcademicSettings | null>(null);
+  const [confirmKey,setConfirmKey] = useState('');
+  const [replaceCalendar,setReplaceCalendar] = useState(false);
+  const [confirmReplacement,setConfirmReplacement] = useState(false);
+  const [settingsError,setSettingsError] = useState('');
+  useEffect(() => {
+    const controller=new AbortController();
+    getAcademicSettings(controller.signal).then(setSettings).catch(e=>{if(!controller.signal.aborted)setSettingsError(e.message);});
+    return ()=>controller.abort();
+  },[]);
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [wholeYear, setWholeYear] = useState(false);
+  const [type, setType] = useState('');
+  const [events, setEvents] = useState<AcademicEvent[]>([]);
+  const [refresh, setRefresh] = useState(0);
+  const [selected, setSelected] = useState('');
+  const [editing, setEditing] = useState<(EventInput & { id_data_especial?: number }) | null>(null);
+  const [removing, setRemoving] = useState<AcademicEvent | null>(null);
   const [busy, setBusy] = useState(false);
-  const [year, setYear] = useState(String(new Date().getFullYear()));
-  const guard = useRef(false);
+  const [loading, setLoading] = useState(true);
+  const lock = useRef(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [report, setReport] = useState<ImportReport | null>(null);
   const { blocked } = useSystemLock();
   useEffect(() => {
-    let active = true;
-    listCalendar().then(data => { if (active) { setEntries(data); setLoadError(''); setLoading(false); } }).catch(e => { if (active) { setLoadError(e.message); setLoading(false); } });
-    return () => { active = false; };
-  }, [attempt]);
-  function edit(entry?: CalendarEntry) { setError(''); setEditingId(entry?.id); setForm(entry ? { titulo: entry.titulo, tipo: entry.tipo, inicio: entry.inicio, fim: entry.fim } : empty); setOpen(true); }
-  async function save(event: FormEvent) {
-    event.preventDefault(); if (guard.current || blocked) return;
-    if (!form.titulo.trim() || !form.inicio || !form.fim || form.fim < form.inicio) { setError('Informe título e um intervalo válido de datas.'); return; }
-    guard.current = true; setBusy(true); setError('');
-    try {
-      const saved = await saveCalendar({ ...form, titulo: form.titulo.trim() }, editingId);
-      setEntries(rows => editingId ? rows.map(row => row.id === editingId ? saved : row) : [...rows, saved]);
-      setOpen(false); toast.success('Evento salvo.'); setAttempt(n => n + 1);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Não foi possível salvar.'); }
-    finally { guard.current = false; setBusy(false); }
+    const controller = new AbortController();
+    listEvents({ ano: Number(month.slice(0, 4)), mes: wholeYear ? undefined : Number(month.slice(5)), tipo: type }, controller.signal)
+      .then(result => { if (!controller.signal.aborted) { setEvents(result); setError(''); setLoading(false); } })
+      .catch(e => { if (!controller.signal.aborted) { setError(e.message); setEvents([]); setLoading(false); } });
+    return () => controller.abort();
+  }, [month, wholeYear, type, refresh]);
+  const [year, number] = month.split('-').map(Number);
+  const days = new Date(Date.UTC(year, number, 0)).getUTCDate();
+  const offset = new Date(Date.UTC(year, number - 1, 1)).getUTCDay();
+  function changeMonth(value: string) { if (/^20\d{2}-(0[1-9]|1[0-2])$/.test(value)) { setMonth(value); setSelected(`${value}-01`); setLoading(true); } }
+  function move(delta: number) { const d = new Date(Date.UTC(year, number - 1 + delta, 1)); changeMonth(d.toISOString().slice(0, 7)); }
+  async function action(work: () => Promise<void>) {
+    if (lock.current || blocked) return;
+    lock.current = true; setBusy(true); setError(''); setNotice('');
+    try { await work(); setRefresh(v => v + 1); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Não foi possível concluir a operação.'); }
+    finally { lock.current = false; setBusy(false); }
   }
-  async function remove() {
-    if (!removing || guard.current || blocked) return;
-    guard.current = true; setBusy(true); setError('');
-    try { await deleteCalendar(removing.id); setEntries(rows => rows.filter(row => row.id !== removing.id)); setRemoving(null); toast.success('Evento removido.'); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Falha ao remover evento.'); }
-    finally { guard.current = false; setBusy(false); }
+  async function applyPreview() {
+    if (!report?.token || report.pode_confirmar === false) return;
+    setConfirmReplacement(false);
+    await action(async()=>{
+      const result=await confirmCalendar(report.token!,confirmKey);
+      setReport(result);setConfirmReplacement(false);
+      setNotice(result.modo==='substituir' ? `Calendário de ${result.ano} substituído. ${result.removidos ?? 0} datas antigas removidas.` : 'Datas conferidas e importadas. Confira o período selecionado.');
+    });
   }
-  const visible = entries.filter(entry => !year || (entry.inicio <= `${year}-12-31` && entry.fim >= `${year}-01-01`)).sort((a, b) => a.inicio.localeCompare(b.inicio));
-  return <div className="view-enter"><div className="page-heading"><div><p className="eyebrow">GESTÃO ACADÊMICA</p><h1>Calendário acadêmico</h1><p>Feriados, recessos e pontos facultativos.</p></div><Button disabled={blocked} onClick={() => edit()}><Plus size={16} />Adicionar evento</Button></div>
-    {loadError && <Alert variant="destructive" className="mb-4"><AlertDescription>{loadError}<Button variant="outline" onClick={() => setAttempt(n => n + 1)}>Tentar novamente</Button></AlertDescription></Alert>}
-    {error && !open && <Alert variant="destructive" className="mb-4"><AlertDescription>{error}</AlertDescription></Alert>}
-    <section className="table-card"><div className="table-toolbar"><CalendarDays size={18} /><Label htmlFor="calendar-year">Ano</Label><Input id="calendar-year" className="max-w-32" type="number" min={2000} max={2099} value={year} onChange={e => setYear(e.target.value)} /><span className="result-count">{visible.length} eventos</span></div>
-      <Table><TableHeader><TableRow><TableHead>Evento</TableHead><TableHead>Tipo</TableHead><TableHead>Início</TableHead><TableHead>Fim</TableHead><TableHead className="actions-head">Ações</TableHead></TableRow></TableHeader><TableBody>{visible.map(entry => <TableRow key={entry.id}><TableCell>{entry.titulo}</TableCell><TableCell><span className="status-badge status-progress">{labels[entry.tipo]}</span></TableCell><TableCell>{displayDate(entry.inicio)}</TableCell><TableCell>{displayDate(entry.fim)}</TableCell><TableCell><div className="row-actions"><Button variant="ghost" size="icon" aria-label={`Editar ${entry.titulo}`} disabled={busy || blocked} onClick={() => edit(entry)}><Pencil size={16} /></Button><Button variant="ghost" size="icon" aria-label={`Excluir ${entry.titulo}`} disabled={busy || blocked} onClick={() => { setError(''); setRemoving(entry); }}><Trash2 size={16} /></Button></div></TableCell></TableRow>)}</TableBody></Table>
-      {!visible.length && !loadError && <div className="empty-state"><CalendarDays size={30} /><p>{loading ? 'Carregando calendário…' : 'Nenhum evento neste ano.'}</p></div>}
+  function submit(e: FormEvent) {
+    e.preventDefault(); if (!editing) return;
+    const { id_data_especial, ...data } = editing;
+    void action(async () => { await saveEvent(data, id_data_especial); setEditing(null); setNotice('Data especial salva.'); });
+  }
+  return <div className="academic-page view-enter">
+    <div className="page-heading"><div><h1>Calendário acadêmico</h1><p>Feriados, recessos, pontos facultativos e outras datas.</p></div><Button disabled={busy || blocked} onClick={() => { setError(''); setEditing({ data: selected || `${month}-01`, especificacao: '', tipo: 'OUTRO' }); }}>Adicionar data</Button></div>
+    <section className="academic-panel">
+      <div className="academic-toolbar">
+        <Button variant="outline" onClick={() => move(-1)} disabled={month === '2000-01'} aria-label="Mês anterior">←</Button>
+        <label>Mês e ano<Input type="month" min="2000-01" max="2099-12" value={month} onChange={e => changeMonth(e.target.value)} /></label>
+        <Button variant="outline" onClick={() => move(1)} disabled={month === '2099-12'} aria-label="Próximo mês">→</Button>
+        <label>Tipo<select value={type} onChange={e => setType(e.target.value)}><option value="">Todos os tipos</option>{Object.entries(eventTypes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="check-label"><input type="checkbox" checked={wholeYear} onChange={e => setWholeYear(e.target.checked)} />Listar o ano inteiro</label>
+        <Button variant="outline" onClick={() => setRefresh(v => v + 1)}>Atualizar</Button>
+      </div>
+      {loading && <p role="status">Carregando datas…</p>}
+      <div className="calendar-grid" aria-label={`Calendário de ${month}`}>
+        {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(day => <strong className="calendar-weekday" key={day}>{day}</strong>)}
+        {Array.from({ length: offset }, (_, i) => <span key={`empty-${i}`} />)}
+        {Array.from({ length: days }, (_, i) => {
+          const date = `${month}-${String(i + 1).padStart(2, '0')}`;
+          const daily = events.filter(e => e.data === date);
+          return <button key={date} className={`calendar-day ${selected === date ? 'is-selected' : ''} ${[0, 6].includes((offset + i) % 7) ? 'is-weekend' : ''}`} aria-pressed={selected === date} onClick={() => setSelected(date)}>
+            <strong>{i + 1}</strong>{daily.map(e => <span key={e.id_data_especial} className={`event-tag type-${e.tipo}`} title={`${eventTypes[e.tipo]}: ${e.especificacao}`}>{e.especificacao}</span>)}
+          </button>;
+        })}
+      </div>
+      {selected && <div className="calendar-detail"><h2>{selected.split('-').reverse().join('/')}</h2>{events.filter(e => e.data === selected).map(e => <p key={e.id_data_especial}>{eventTypes[e.tipo]}: {e.especificacao}</p>)}{!events.some(e => e.data === selected) && <p>Nenhum evento com os filtros atuais.</p>}</div>}
     </section>
-    <Dialog open={open} onOpenChange={value => { if (!guard.current) setOpen(value); }}><DialogContent className="send-dialog" onInteractOutside={e => { if (guard.current) e.preventDefault(); }} onEscapeKeyDown={e => { if (guard.current) e.preventDefault(); }}><DialogHeader><DialogTitle>{editingId ? 'Editar evento' : 'Adicionar evento'}</DialogTitle><DialogDescription>Informe o tipo e o intervalo. Para um único dia, use a mesma data no início e no fim.</DialogDescription></DialogHeader>
-      <form onSubmit={save} className="space-y-4"><div className="space-y-2"><Label htmlFor="event-title">Título</Label><Input id="event-title" required maxLength={200} value={form.titulo} disabled={busy || blocked} onChange={e => setForm({ ...form, titulo: e.target.value })} /></div><div className="space-y-2"><Label htmlFor="event-type">Tipo</Label><NativeSelect id="event-type" value={form.tipo} disabled={busy || blocked} onChange={e => setForm({ ...form, tipo: e.target.value as CalendarDraft['tipo'] })}>{Object.entries(labels).map(([value, label]) => <NativeSelectOption key={value} value={value}>{label}</NativeSelectOption>)}</NativeSelect></div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="event-start">Início</Label><Input id="event-start" type="date" required min="2000-01-01" max="2099-12-31" disabled={busy || blocked} value={form.inicio} onChange={e => setForm({ ...form, inicio: e.target.value, fim: form.fim || e.target.value })} /></div><div className="space-y-2"><Label htmlFor="event-end">Fim</Label><Input id="event-end" type="date" required min={form.inicio || '2000-01-01'} max="2099-12-31" disabled={busy || blocked} value={form.fim} onChange={e => setForm({ ...form, fim: e.target.value })} /></div></div>
-        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-        <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={() => setOpen(false)}>Cancelar</Button><Button type="submit" disabled={busy || blocked}>{busy ? 'Salvando…' : 'Salvar evento'}</Button></DialogFooter>
-      </form></DialogContent></Dialog>
-    <ConfirmationDialog open={!!removing} title="Excluir evento?" description={removing ? `Excluir ${removing.titulo} do calendário acadêmico?` : ''} busy={busy} disabled={blocked} confirmLabel="Excluir" onConfirm={() => void remove()} onCancel={() => setRemoving(null)} />
+    {settingsError && <p role="alert" className="form-error">Não foi possível consultar os limites de importação: {settingsError}</p>}{notice && <p role="status">{notice}</p>}{error && !editing && <p role="alert" className="form-error">{error}</p>}
+    <section className="table-card"><div className="table-scroll"><table><thead><tr><th>Data</th><th>Especificação</th><th>Tipo</th><th>Ações</th></tr></thead><tbody>{events.map(e => <tr key={e.id_data_especial}>
+      <td>{e.data.split('-').reverse().join('/')}</td><td>{e.especificacao}</td><td><span className={`event-tag type-${e.tipo}`}>{eventTypes[e.tipo]}</span></td><td><div className="row-actions"><Button variant="outline" disabled={busy || blocked} onClick={() => { setError(''); setEditing({ data: e.data, especificacao: e.especificacao, tipo: e.tipo, id_data_especial: e.id_data_especial }); }}>Editar</Button><Button variant="outline" disabled={busy || blocked} onClick={() => setRemoving(e)}>Excluir</Button></div></td>
+    </tr>)}</tbody></table></div>{!loading && !events.length && <p className="academic-empty">Nenhum evento encontrado.</p>}</section>
+    <section className="academic-panel"><h2>Importar calendário</h2><p>Arquivos aceitos: Excel (.xlsx) e PDF (.pdf). Até {settings ? settings.max_upload_bytes / (1024 * 1024) : '…'} MB.</p>
+      <label className="check-label"><input type="checkbox" checked={replaceCalendar} disabled={busy || blocked} onChange={e=>{setReplaceCalendar(e.target.checked);setReport(null);setNotice('');setError('');}} />Substituir calendário de {year}</label>
+      <Input aria-label="Importar calendário — Excel ou PDF" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,application/pdf" disabled={busy || blocked || !settings} onChange={e => { const file = e.target.files?.[0]; e.currentTarget.value = ''; if (file) void action(async () => { setReport(null); const result=await importCalendar(file,settings!.max_upload_bytes,replaceCalendar ? {replaceYear:year} : undefined); setReport(result); setConfirmKey(newId()); setNotice(result.status==='PREVIA' ? 'Confira as datas e confirme a importação.' : 'Importação concluída. Confira o período selecionado.'); }); }} />
+      {busy && <p role="status">Processando arquivo…</p>}{report && <div className="import-report"><p>{report.status==='PREVIA' ? `Prévia · ${report.validos} datas para conferir · ` : ''}{report.removidos !== undefined ? `Removidos: ${report.removidos} · ` : ''}Total: {report.total} · Novos: {report.novos} · Atualizados: {report.atualizados} · Ignorados: {report.ignorados} · Inválidos: {report.invalidos}</p><details open={report.invalidos > 0 || report.status==='PREVIA'}><summary>Detalhes por linha/página</summary><ul>{report.detalhes.map(d => <li key={d.linha}>{d.pagina ? `Página ${d.pagina} · ` : ''}Linha {d.linha}{d.origem ? ` · ${d.origem}` : ''} · {d.status}: {d.motivo}{d.data && <p>{d.data.split('-').reverse().join('/')} — {d.especificacao}</p>}{d.texto && <p className="whitespace-pre-wrap">Texto: {d.texto}</p>}</li>)}</ul></details>{report.status==='PREVIA' && <>{report.modo==='substituir' ? <p>Ao confirmar, {report.existentes_a_remover} datas antigas de {report.ano} serão apagadas e substituídas por este arquivo. Outros anos e PDFs já gerados serão preservados.</p> : <p>Somente as datas reconhecidas serão importadas. Linhas inválidas devem ser corrigidas no arquivo e importadas novamente.</p>}{report.motivo_bloqueio && <p role="alert" className="form-error">{report.motivo_bloqueio}</p>}<Button disabled={busy || blocked || !report.validos || report.pode_confirmar===false} onClick={()=>{if(report.modo==='substituir')setConfirmReplacement(true);else void applyPreview();}}>{report.modo==='substituir' ? `Substituir calendário de ${report.ano}` : 'Confirmar datas do PDF'}</Button><Button variant="outline" disabled={busy} onClick={()=>{setReport(null);setNotice('Prévia descartada. Nenhuma data foi importada.');}}>Descartar prévia</Button></>}</div>}
+    </section>
+    <Dialog open={editing !== null} onOpenChange={open => { if (!open && !busy) setEditing(null); }}><DialogContent><DialogHeader><DialogTitle>{editing?.id_data_especial ? 'Editar data especial' : 'Adicionar data especial'}</DialogTitle><DialogDescription>Dados persistidos no calendário do servidor.</DialogDescription></DialogHeader>
+      {editing && <form className="academic-form" onSubmit={submit}><label>Data<Input type="date" required disabled={busy || blocked} value={editing.data} onChange={e => setEditing({ ...editing, data: e.target.value })} /></label><label>Especificação<Input required maxLength={300} disabled={busy || blocked} value={editing.especificacao} onChange={e => setEditing({ ...editing, especificacao: e.target.value })} /></label><label>Tipo<select disabled={busy || blocked} value={editing.tipo} onChange={e => setEditing({ ...editing, tipo: e.target.value as EventType })}>{Object.entries(eventTypes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{error && <p role="alert" className="form-error">{error}</p>}<Button type="submit" disabled={busy || blocked}>{busy ? 'Salvando…' : 'Salvar data'}</Button></form>}
+    </DialogContent></Dialog>
+    <ConfirmationDialog open={confirmReplacement} title={`Substituir calendário de ${report?.ano}?`} description={`As ${report?.existentes_a_remover ?? 0} datas atuais desse ano serão apagadas e substituídas pelas datas do novo arquivo. Outros anos e PDFs já gerados serão preservados.`} busy={busy} disabled={blocked || report?.pode_confirmar===false} confirmLabel="Substituir calendário" onConfirm={()=>void applyPreview()} onCancel={()=>{if(!busy)setConfirmReplacement(false);}} />
+    <ConfirmationDialog open={!!removing} title="Excluir data especial?" description={`Excluir ${removing?.especificacao ?? ''}? Os PDFs já gerados serão preservados.`} busy={busy} disabled={blocked} confirmLabel="Excluir" onConfirm={() => void action(async () => { await deleteEvent(removing!.id_data_especial); setRemoving(null); setNotice('Data excluída.'); })} onCancel={() => setRemoving(null)} />
   </div>;
 }

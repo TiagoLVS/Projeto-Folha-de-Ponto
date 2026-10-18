@@ -1,8 +1,8 @@
 import { apiRequest } from './api-client.ts';
-export type ImportRow = { linha: number; nome: string; matricula: string; email?: string; acao: 'novo' | 'atualizado' | 'ignorado'; motivo?: string };
+export type ImportRow = { linha: number; nome: string; matricula: string; email?: string; cpf?: string; valido?: boolean; acao: 'novo' | 'atualizado' | 'ignorado'; motivo?: string };
 export type ImportPreview = { token: string; registros: ImportRow[]; expira_em: string };
 export async function previewServerImport(file: File): Promise<ImportPreview> {
-  if (!/\.xlsx$/i.test(file.name) || !file.size || file.size > 15 * 1024 * 1024) throw new Error('Selecione um arquivo .xlsx de até 15 MB.');
+  if (!/\.xlsx?$/i.test(file.name) || !file.size || file.size > 15 * 1024 * 1024) throw new Error('Selecione um arquivo .xls ou .xlsx de até 15 MB.');
   const form = new FormData(); form.append('arquivo', file, file.name);
   const data = await apiRequest<ImportPreview>('/api/servers/import/preview', { method: 'POST', body: form });
   if (!data.token || !Array.isArray(data.registros) || !Number.isFinite(Date.parse(data.expira_em))

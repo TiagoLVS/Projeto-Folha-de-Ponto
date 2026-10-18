@@ -156,21 +156,21 @@ def listar_servidores():
     with conectar() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             cursor.execute("""
-                SELECT id_servidor, nome, matricula, email, departamento, carga_horaria
+                SELECT id_servidor, nome, matricula, cpf, email, departamento, carga_horaria, acumula_cargo
                 FROM servidor ORDER BY nome, id_servidor
             """)
             return cursor.fetchall()
 
 
-def atualizar_servidor(id_servidor, nome, matricula, email, departamento, carga_horaria=None):
+def atualizar_servidor(id_servidor, nome, matricula, email, departamento, carga_horaria=None, cpf=None, acumula_cargo=False):
     with conectar() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             cursor.execute("""
                 UPDATE servidor SET nome = %s, matricula = %s,
-                    email = %s, departamento = %s, carga_horaria = %s
+                    email = %s, departamento = %s, carga_horaria = %s, cpf = %s, acumula_cargo = %s
                 WHERE id_servidor = %s
-                RETURNING id_servidor, nome, matricula, email, departamento, carga_horaria
-            """, (nome, matricula, email, departamento, carga_horaria, id_servidor))
+                RETURNING id_servidor, nome, matricula, cpf, email, departamento, carga_horaria, acumula_cargo
+            """, (nome, matricula, email, departamento, carga_horaria, cpf, acumula_cargo, id_servidor))
             return cursor.fetchone()
 
 
@@ -215,7 +215,7 @@ def confirmar_folha(id_folha, id_servidor, mes, ano):
             }
 
 
-def criar_servidor(nome, matricula, email, departamento, carga_horaria=None):
+def criar_servidor(nome, matricula, email, departamento, carga_horaria=None, cpf=None, acumula_cargo=False):
     with conectar() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -226,11 +226,11 @@ def criar_servidor(nome, matricula, email, departamento, carga_horaria=None):
                 return None
             cursor.execute(
                 """
-                INSERT INTO servidor (nome, matricula, email, departamento, carga_horaria)
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING id_servidor, nome, matricula, email, departamento, carga_horaria
+                INSERT INTO servidor (nome, matricula, email, departamento, carga_horaria, cpf, acumula_cargo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id_servidor, nome, matricula, cpf, email, departamento, carga_horaria, acumula_cargo
                 """,
-                (nome, matricula, email, departamento, carga_horaria),
+                (nome, matricula, email, departamento, carga_horaria, cpf, acumula_cargo),
             )
             return cursor.fetchone()
 
@@ -312,85 +312,12 @@ def salvar_folha(
     with conectar() as conn:
         with conn.cursor() as cursor:
 
-            if id_servidor is not None and id_competencia is not None:
-
-                cursor.execute(
-                    """
-                    INSERT INTO folha_ponto (
-                        id_servidor,
-                        id_competencia,
-                        caminho_arquivo,
-                        nome_arquivo,
-                        matricula_lida,
-                        competencia_lida,
-                        status_ocr,
-                        mensagem_ocr,
-                        data_processamento_ocr
-                    )
-                    VALUES (
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, CURRENT_TIMESTAMP
-                    )
-
-                    ON CONFLICT (
-                        id_servidor,
-                        id_competencia
-                    )
-                    DO UPDATE SET
-                        caminho_arquivo = EXCLUDED.caminho_arquivo,
-                        nome_arquivo = EXCLUDED.nome_arquivo,
-                        matricula_lida = EXCLUDED.matricula_lida,
-                        competencia_lida = EXCLUDED.competencia_lida,
-                        status_ocr = EXCLUDED.status_ocr,
-                        mensagem_ocr = EXCLUDED.mensagem_ocr,
-                        data_processamento_ocr = CURRENT_TIMESTAMP
-
-                    RETURNING id_folha
-                    """,
-                    (
-                        id_servidor,
-                        id_competencia,
-                        caminho_arquivo,
-                        nome_arquivo,
-                        matricula_lida,
-                        competencia_lida,
-                        status_ocr,
-                        mensagem_ocr,
-                    ),
-                )
-
-            else:
-
-                cursor.execute(
-                    """
-                    INSERT INTO folha_ponto (
-                        id_servidor,
-                        id_competencia,
-                        caminho_arquivo,
-                        nome_arquivo,
-                        matricula_lida,
-                        competencia_lida,
-                        status_ocr,
-                        mensagem_ocr,
-                        data_processamento_ocr
-                    )
-                    VALUES (
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, CURRENT_TIMESTAMP
-                    )
-                    RETURNING id_folha
-                    """,
-                    (
-                        id_servidor,
-                        id_competencia,
-                        caminho_arquivo,
-                        nome_arquivo,
-                        matricula_lida,
-                        competencia_lida,
-                        status_ocr,
-                        mensagem_ocr,
-                    ),
-                )
+            cursor.execute("""
+                INSERT INTO folha_ponto(id_servidor,id_competencia,caminho_arquivo,nome_arquivo,
+                    matricula_lida,competencia_lida,status_ocr,mensagem_ocr,data_processamento_ocr)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP) RETURNING id_folha
+            """, (id_servidor,id_competencia,caminho_arquivo,nome_arquivo,
+                  matricula_lida,competencia_lida,status_ocr,mensagem_ocr))
 
             return cursor.fetchone()[0]
 
@@ -402,7 +329,7 @@ def buscar_folha_para_envio(id_folha):
                 """
                 SELECT
                     fp.id_folha,
-                    fp.caminho_arquivo,
+                    fp.caminho_arquivo, fp.id_competencia, fp.confirmado_em, fp.ativo, fp.versao, fp.sha256,
                     fp.status_ocr,
                     s.id_servidor,
                     s.matricula,
@@ -414,7 +341,7 @@ def buscar_folha_para_envio(id_folha):
                 JOIN servidor s
                     ON s.id_servidor = fp.id_servidor
 
-                WHERE fp.id_folha = %s
+                WHERE fp.id_folha = %s AND fp.ativo AND fp.status_ocr = 'OK' AND fp.confirmado_em IS NOT NULL
                 """,
                 (id_folha,),
             )
@@ -427,13 +354,13 @@ def listar_folhas_para_envio(ano, mes, ids_servidores):
         with conn.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT fp.id_folha, fp.caminho_arquivo, fp.status_ocr,
+                SELECT fp.id_folha, fp.caminho_arquivo, fp.status_ocr, fp.id_competencia, fp.confirmado_em, fp.ativo, fp.versao, fp.sha256,
                        s.id_servidor, s.matricula, s.nome, s.email
                 FROM folha_ponto fp
                 JOIN servidor s ON s.id_servidor = fp.id_servidor
                 JOIN competencia c ON c.id_competencia = fp.id_competencia
                 WHERE c.ano = %s AND c.mes = %s
-                  AND s.id_servidor = ANY(%s)
+                  AND s.id_servidor = ANY(%s) AND fp.ativo AND fp.status_ocr = 'OK' AND fp.confirmado_em IS NOT NULL
                 """,
                 (ano, mes, ids_servidores),
             )

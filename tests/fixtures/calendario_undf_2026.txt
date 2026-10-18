@@ -1,0 +1,813 @@
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+Leg.
+JANEIRO/2026
+ 
+ 
+ 
+1
+2
+3
+01/01 - Feriado - Confraternização Universal 
+4
+5
+6
+7
+8
+9
+10
+02/01 - Recesso Acadêmico
+11
+12
+13
+14
+15
+16
+17
+05/01 a 03/02 - Período de Férias Acadêmicas
+18
+19
+20
+21
+22
+23
+24
+19/01 a 30/01  - Renovação/ Destrancamento de matrícula para 2026.1
+25
+26
+27
+28
+29
+30
+31
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+FEVEREIRO/2026
+1
+2
+3
+4
+5
+6
+7
+05/01 a 03/02 - Período de Férias Acadêmicas
+8
+9
+10
+11
+12
+13
+14
+1
+04/02 a 06/02 - Planejamento Pedagógico e Formação Docente
+15
+16
+17
+18
+19
+20
+21
+2
+09/02 - Início do 1º Semestre Letivo de 2026
+22
+23
+24
+25
+26
+27
+28
+3
+17/02 - Feriado – Carnaval
+S
+T
+Q
+Q
+S
+S
+14, 16 e 18/02 - Recesso Acadêmico
+2
+2
+2
+3
+3
+2
+23/02 a 01/03 - Solicitação de Aproveitamento de Estudos
+Dias letivos/mês:
+14
+14
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+MARÇO/2026
+1
+2
+3
+4
+5
+6
+7
+4
+23/02 a 01/03 - Solicitação de Aproveitamento de Estudos
+8
+9
+10
+11
+12
+13
+14
+5
+02 a 31/03 - Período para solicitação de Trancamento de Matrícula
+15
+16
+17
+18
+19
+20
+21
+6
+22
+23
+24
+25
+26
+27
+28
+7
+29
+30
+31
+8
+S
+T
+Q
+Q
+S
+S
+5
+5
+4
+4
+4
+4
+26
+40
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+ABRIL/2026
+ 
+ 
+1
+2
+3
+4
+8
+03/04 - Feriado – Sexta-feira da Paixão
+5
+6
+7
+8
+9
+10
+11
+9
+02/04 e 04/04 - Recesso Acadêmico (Semana Santa)
+12
+13
+14
+15
+16
+17
+18
+10
+20/04 - Recesso Acadêmico
+19
+20
+21
+22
+23
+24
+25
+11
+21/04 - Aniversário de Brasília / Tiradentes 
+26
+27
+28
+29
+30
+12
+27/04 a 30/04 - Semana Acadêmica
+S
+T
+Q
+Q
+S
+S
+3
+3
+5
+4
+3
+3
+21
+61
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+MAIO/2026
+ 
+ 
+ 
+1
+2
+12
+01/05 – Feriado - Dia do Trabalhador
+3
+4
+5
+6
+7
+8
+9
+13
+02/05 - Recesso Acadêmico (Dia do Trabalhador)
+10
+11
+12
+13
+14
+15
+16
+14
+17
+18
+19
+20
+21
+22
+23
+15
+24
+25
+26
+27
+28
+29
+30
+16
+31
+S
+T
+Q
+Q
+S
+S
+4
+4
+4
+4
+4
+4
+24
+85
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+JUNHO/2026
+1
+2
+3
+4
+5
+6
+17
+04/06 – Corpus Christi
+7
+8
+9
+10
+11
+12
+13
+18
+05/06 e 06/06 – Recesso Acadêmico Corpus Christ
+14
+15
+16
+17
+18
+19
+20
+19
+21
+22
+23
+24
+25
+26
+27
+20
+28
+29
+30
+21
+S
+T
+Q
+Q
+S
+S
+5
+5
+4
+3
+3
+3
+23
+108
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+JULHO/2026
+ 
+ 
+1
+2
+3
+4
+21
+04/07 - Final do Semestre
+5
+6
+7
+8
+9
+10
+11
+06/07 - Fechamento das notas/frequências e entrega dos diários à SEAG
+12
+13
+14
+15
+16
+17
+18
+07/07 - Publicação dos Resultados Premilinares
+19
+20
+21
+22
+23
+24
+25
+08/07 e 09/07 - Revisão de frequência e menção final - Análise e parecer
+26
+27
+28
+29
+30
+31
+09/07 - Publicação dos Resultados Finais
+S
+T
+Q
+Q
+S
+S
+10/07 - Colação de Grau
+0
+0
+1
+1
+1
+1
+13 a 25/07 – Renovação/Destrancamento de matrícula para 2026.2
+04
+13 a 25/07 – Recesso Acadêmico
+112
+26/07 – Aniversário da UnDF
+S
+T
+Q
+Q
+S
+S
+27/07 a 31/07 - Planejamento Pedagógico e Formação Docente
+19
+19
+20
+19
+18
+17
+ 
+Qtd.Dias
+Dias letivos 2º semestre/mês:
+Total dias letivos 1º semestre:
+Dias Letivos 
+1º Sem
+ 
+Qtd.Dias
+Dias letivos/mês:
+Dias letivos/ semestre:
+Dias letivos/ semestre:
+Qtd. Dias
+Dias letivos/mês:
+Dias letivos/ semestre:
+Dias letivos/mês:
+Dias letivos/ semestre:
+ 
+Qtd.Dias
+Dias letivos/mês:
+Qtd. Dias
+Dias letivos/ semestre:
+ 
+Qtd.Dias
+GOVERNO DO DISTRITO FEDERAL
+UNIVERSIDADE DO DISTRITO FEDERAL PROFESSOR JORGE AMAURY MAIA NUNES
+CALENDÁRIO ACADÊMICO 2026
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+AGOSTO/2026
+1
+03/08  - Início do Semestre Letivo 2026.2 
+2
+3
+4
+5
+6
+7
+8
+1
+04/08 e 05/08 - Recepção dos Estudantes / Aula Magna
+9
+10
+11
+12
+13
+14
+15
+2
+04/08 a 31/08 - Solicitação de Aproveitamento de Estudos
+16
+17
+18
+19
+20
+21
+22
+3
+10/08 a 12/09  - Período para solicitação de Trancamento de Matrícula 
+23
+24
+25
+26
+27
+28
+29
+4
+30
+31
+5
+S
+T
+Q
+Q
+S
+S
+5
+4
+4
+4
+4
+4
+25
+25
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+SETEMBRO/2026
+1
+2
+3
+4
+5
+5
+07/09 – Feriado – Dia da Independência do Brasil
+6
+7
+8
+9
+10
+11
+12
+6
+10/08 a 12/09  - Solicitação de Trancamento de Matrícula
+13
+14
+15
+16
+17
+18
+19
+7
+20
+21
+22
+23
+24
+25
+26
+8
+21/09 a 26/09 - Semana Acadêmica
+27
+28
+29
+30
+9
+S
+T
+Q
+Q
+S
+S
+3
+5
+5
+4
+4
+4
+25
+50
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+OUTUBRO/2026
+1
+2
+3
+9
+12/10 – Dia de Nossa Senhora
+4
+5
+6
+7
+8
+9
+10
+10
+13/10 – Dia do Professor (Antecipação)
+11
+12
+13
+14
+15
+16
+17
+11
+28/10 – Dia do Servidor Público
+18
+19
+20
+21
+22
+23
+24
+12
+25
+26
+27
+28
+29
+30
+31
+13
+S
+T
+Q
+Q
+S
+S
+3
+3
+3
+5
+5
+5
+24
+74
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+NOVEMBRO/2026
+1
+2
+3
+4
+5
+6
+7
+14
+02/11 – Dia de Finados
+8
+9
+10
+11
+12
+13
+14
+15
+15/11 – Dia da Proclamação da República
+15
+16
+17
+18
+19
+20
+21
+16
+20/11 – Dia Nacional de Zumbi e da Consciência Negra
+22
+23
+24
+25
+26
+27
+28
+17
+23/11 a 27/11 - Avaliação Institucional
+29
+30
+18
+30/11 – Dia do Evangélico
+S
+T
+Q
+Q
+S
+S
+3
+4
+4
+4
+3
+4
+22
+96
+Dom
+Seg
+Ter
+Qua
+Qui
+Sex
+Sáb
+Semana
+DEZEMBRO/2026
+1
+2
+3
+4
+5
+18
+12/12 - Fim do semestre Letivo 2026.2
+6
+7
+8
+9
+10
+11
+12
+19
+14/12  - Fechamento das notas/frequências e entrega dos diários à SEAG
+13
+14
+15
+16
+17
+18
+19
+15/12 - Publicação dos Resultados Premilinares
+20
+21
+22
+23
+24
+25
+26
+16/12 e 17/12 - Revisão de frequência e menção final - Análise e parecer
+27
+28
+29
+30
+31
+17/12 - Publicação dos Resultados Finais
+S
+T
+Q
+Q
+S
+S
+18/12 - Colação de Grau
+1
+2
+2
+2
+2
+2
+21/12 a 31/12 - Recesso Acadêmico
+11
+25/12 - Natal
+107
+S
+T
+Q
+Q
+S
+S
+15
+18
+18
+19
+18
+19
+GOVERNO DO DISTRITO FEDERAL
+UNIVERSIDADE DO DISTRITO FEDERAL PROFESSOR JORGE AMAURY MAIA NUNES
+CALENDÁRIO ACADÊMICO 2026
+Qtd. Dias
+Dias letivos/mês:
+Dias letivos/ semestre:
+ 
+Qtd.Dias
+Dias letivos/mês:
+Dias letivos/ sem.:
+ 
+Qtd.Dias
+Dias letivos/mês:
+Dias letivos/ semestre:
+ 
+Qtd.Dias
+Dias letivos/mês:
+Total Dias letivos/ 2º semestre:
+Dias letivos/mês:
+Dias letivos/ semestre:
+ 
+Qtd.Dias
+Dias Letivos 
+2º Sem

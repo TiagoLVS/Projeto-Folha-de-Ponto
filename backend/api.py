@@ -1,10 +1,13 @@
+from backend.config import MAX_UPLOAD_BYTES
 import os
 import re
 import tempfile
 from pathlib import Path
-import pymupdf
 
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.concurrency import run_in_threadpool
+from backend.models.servidor import ServidorPayload
+from backend.services import lease
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -13,17 +16,15 @@ from psycopg.errors import UniqueViolation
 from backend.database.repository import (
     canonicalize_batch_payload, canonicalize_professor_ids,
     finalizar_requisicao_idempotente, payload_hash_for, registrar_requisicao_idempotente,
-    atualizar_servidor, confirmar_folha, criar_servidor,
-    listar_folhas_para_envio, listar_servidores, salvar_folha,
+    atualizar_servidor, criar_servidor,
+    listar_folhas_para_envio, listar_servidores,
 )
-from backend.services.enviar_email import enviar_apos_confirmacao, enviar_folha_do_banco
-from backend.services.ler_planilha import importar_planilha
-from backend.services.processar_folha import armazenar_arquivo, processar_folha
+from backend.services.enviar_email import enviar_folha_do_banco, validar_folha_envio
 
 
-EXTENSOES_DOCUMENTO = {".pdf", ".png", ".jpg", ".jpeg"}
-TIPOS_DOCUMENTO = {"application/pdf", "image/png", "image/jpeg"}
-LIMITE_UPLOAD = int(os.getenv("MAX_UPLOAD_BYTES", str(15 * 1024 * 1024)))
+EXTENSOES_DOCUMENTO = {".pdf"}
+TIPOS_DOCUMENTO = {"application/pdf"}
+LIMITE_UPLOAD = MAX_UPLOAD_BYTES
 
 app = FastAPI(title="Sistema de Gestão de Folhas de Ponto", version="1.0.0")
 app.add_middleware(
@@ -31,7 +32,7 @@ app.add_middleware(
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "Idempotency-Key"],
+    allow_headers=["Content-Type", "Idempotency-Key", "X-Client-Id"],
 )
 
 
@@ -40,7 +41,7 @@ def validar_upload(arquivo):
     extensao = Path(nome).suffix.lower()
     if not nome or extensao not in EXTENSOES_DOCUMENTO:
         raise HTTPException(status_code=400, detail="Formato de arquivo não suportado.")
-    if arquivo.content_type and arquivo.content_type not in TIPOS_DOCUMENTO:
+    if arquivo.content_type not in TIPOS_DOCUMENTO:
         raise HTTPException(status_code=400, detail="Tipo de conteúdo inválido.")
     return extensao
 
@@ -56,6 +57,11 @@ async def salvar_upload_temporario(arquivo):
                 raise HTTPException(status_code=413, detail=f"Arquivo excede o limite de {LIMITE_UPLOAD // (1024 * 1024)} MB.")
             temporario.write(bloco)
         temporario.close()
+        from backend.services.folhas_recebidas import validar_pdf
+        try:
+            validar_pdf(temporario.name)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
         return Path(temporario.name)
     except Exception:
         temporario.close()
@@ -63,10 +69,11 @@ async def salvar_upload_temporario(arquivo):
         raise
 
 
-async def salvar_planilha_temporaria(arquivo):
-    if not arquivo.filename or Path(arquivo.filename).suffix.lower() != ".xlsx":
-        raise HTTPException(status_code=400, detail="Envie uma planilha Excel (.xlsx).")
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as temporario:
+async def salvar_planilha_temporaria(arquivo, professores=False):
+    extensao = Path(arquivo.filename or "").suffix.lower()
+    if extensao not in ({".xls", ".xlsx"} if professores else {".xlsx"}):
+        raise HTTPException(status_code=400, detail="Envie uma planilha Excel (.xls ou .xlsx)." if professores else "Envie uma planilha Excel (.xlsx).")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=extensao) as temporario:
         caminho = Path(temporario.name)
     tamanho = 0
     try:
@@ -82,36 +89,17 @@ async def salvar_planilha_temporaria(arquivo):
         raise
 
 
+async def salvar_calendario_temporario(arquivo):
+    if Path(arquivo.filename or '').suffix.lower() == '.pdf':
+        return await salvar_upload_temporario(arquivo)
+    if arquivo.content_type not in {'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/octet-stream'}:
+        raise HTTPException(400, detail='Tipo de conteúdo inválido. Envie Excel (.xlsx) ou PDF.')
+    return await salvar_planilha_temporaria(arquivo)
+
+
 @app.get("/")
 def inicio():
     return {"mensagem": "API do Sistema de Folha de Ponto funcionando"}
-
-
-class ServidorPayload(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
-    name: str = Field(min_length=1, max_length=200)
-    registration: str = Field(pattern=r"^[0-9]{4,16}$")
-    email: str = Field(max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    department: str = Field(default="", max_length=200)
-    workload: int | None = Field(default=None, gt=0, le=2147483647, strict=True)
-
-    @field_validator("email")
-    @classmethod
-    def normalizar_email(cls, value):
-        return value.lower()
-
-
-class ConfirmacaoFolhaPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    id_servidor: int = Field(gt=0, strict=True)
-    competencia: str = Field(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")
-
-    @field_validator("competencia")
-    @classmethod
-    def validar_ano(cls, value):
-        if int(value[:4]) < 2000:
-            raise ValueError("O ano deve ser a partir de 2000.")
-        return value
 
 
 @app.get("/servidores")
@@ -121,178 +109,39 @@ def consultar_servidores():
 
 @app.post("/servidores", status_code=201)
 def cadastrar_servidor(payload: ServidorPayload):
+    if payload.workload is None:
+        raise HTTPException(422, detail="Selecione carga horária de 20 ou 40 horas.")
+    if not payload.cpf:
+        raise HTTPException(422, detail="CPF é obrigatório em cadastros novos.")
     try:
         servidor = criar_servidor(
             payload.name, payload.registration, payload.email, payload.department,
-            payload.workload,
+            payload.workload, payload.cpf, payload.acumula_cargo,
         )
     except UniqueViolation:
-        raise HTTPException(status_code=409, detail="Essa matrícula já está cadastrada.")
+        raise HTTPException(status_code=409, detail="Matrícula ou CPF já cadastrado.")
     if servidor is None:
-        raise HTTPException(status_code=409, detail="Essa matrícula já está cadastrada.")
+        raise HTTPException(status_code=409, detail="Matrícula ou CPF já cadastrado.")
     return servidor
 
 
 @app.put("/servidores/{id_servidor}")
 def editar_servidor(id_servidor: int, payload: ServidorPayload):
+    current = next((p for p in listar_servidores() if p['id_servidor']==id_servidor), None)
+    if current and current['carga_horaria'] is not None and payload.workload is None:
+        raise HTTPException(422, detail="Selecione carga horária de 20 ou 40 horas.")
+    if current and current['cpf'] and not payload.cpf:
+        raise HTTPException(422, detail="CPF informado não pode ser removido.")
     try:
         servidor = atualizar_servidor(
             id_servidor, payload.name, payload.registration, payload.email, payload.department,
-            payload.workload,
+            payload.workload, payload.cpf, payload.acumula_cargo,
         )
     except UniqueViolation:
-        raise HTTPException(status_code=409, detail="Essa matrícula já está cadastrada.")
+        raise HTTPException(status_code=409, detail="Matrícula ou CPF já cadastrado.")
     if servidor is None:
         raise HTTPException(status_code=404, detail="Professor não encontrado.")
     return servidor
-
-
-@app.patch("/folhas/{id_folha}")
-def corrigir_folha(id_folha: int, payload: ConfirmacaoFolhaPayload):
-    ano, mes = map(int, payload.competencia.split("-"))
-    try:
-        resultado = confirmar_folha(id_folha, payload.id_servidor, mes, ano)
-    except LookupError as erro:
-        raise HTTPException(status_code=404, detail=str(erro))
-    except UniqueViolation:
-        raise HTTPException(
-            status_code=409,
-            detail="Já existe uma folha para esse professor nessa competência. Nenhuma folha foi substituída.",
-        )
-
-    folha = resultado.pop("_folha_envio")
-    try:
-        resultado["envio"] = enviar_apos_confirmacao(folha)
-    except Exception:
-        # A confirmação foi persistida; falha de envio não desfaz o vínculo.
-        resultado["envio"] = {
-            "status": "ERRO",
-            "mensagem": "Vínculo salvo, mas não foi possível confirmar o envio do e-mail. Confira o histórico e a configuração do servidor.",
-        }
-    return resultado
-
-
-@app.post("/folhas/processar")
-async def processar_documento(arquivo: UploadFile = File(...)):
-    caminho = await salvar_upload_temporario(arquivo)
-    try:
-        return processar_folha(caminho)
-    finally:
-        caminho.unlink(missing_ok=True)
-
-@app.post("/folhas/processar-lote")
-async def processar_documentos(arquivos: list[UploadFile] = File(...)):
-    if not arquivos:
-        raise HTTPException(
-            status_code=400,
-            detail="Envie pelo menos um arquivo PDF.",
-        )
-
-    caminhos = []
-
-    try:
-        # Etapa 1: validar os nomes e os tipos informados.
-        for arquivo in arquivos:
-            nome = Path(arquivo.filename or "").name
-
-            if not nome or Path(nome).suffix.lower() != ".pdf":
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"O arquivo '{nome}' não é um PDF válido.",
-                )
-
-            if (
-                arquivo.content_type
-                and arquivo.content_type != "application/pdf"
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"O arquivo '{nome}' deve ter o tipo application/pdf.",
-                )
-
-        # Etapa 2: salvar todos os arquivos temporariamente.
-        for arquivo in arquivos:
-            caminho = await salvar_upload_temporario(arquivo)
-            caminhos.append((arquivo, caminho))
-
-    except Exception:
-        for _, caminho in caminhos:
-            caminho.unlink(missing_ok=True)
-        raise
-
-    finally:
-        # Fechar os arquivos recebidos, mesmo quando houver erro.
-        for arquivo in arquivos:
-            await arquivo.close()
-
-    # Etapa 3: processar cada PDF individualmente.
-    resultados = []
-
-    try:
-        for arquivo, caminho in caminhos:
-            nome = Path(arquivo.filename or "").name
-
-            try:
-                # Verificar se o conteúdo pode ser aberto como PDF.
-                with pymupdf.open(caminho) as documento:
-                    if not documento.is_pdf or documento.page_count < 1:
-                        raise ValueError("O arquivo não contém um PDF válido.")
-
-                resultado = processar_folha(caminho)
-
-                resultados.append({
-                    "arquivo": nome,
-                    "sucesso": True,
-                    "resultado": resultado,
-                })
-
-            except Exception as erro:
-                resultados.append({
-                    "arquivo": nome,
-                    "sucesso": False,
-                    "erro": str(erro),
-                })
-
-            finally:
-                caminho.unlink(missing_ok=True)
-
-    finally:
-        # Garantir a remoção de todos os temporários restantes.
-        for _, caminho in caminhos:
-            caminho.unlink(missing_ok=True)
-
-    return {
-        "quantidade": len(resultados),
-        "resultados": resultados,
-    }
-
-@app.post("/folhas/registrar", status_code=201)
-async def registrar_documento(arquivo: UploadFile = File(...)):
-    """Guarda o original para conferência manual, sem depender do OCR."""
-    caminho = await salvar_upload_temporario(arquivo)
-    salvo = None
-    try:
-        salvo = armazenar_arquivo(caminho)
-        id_folha = salvar_folha(
-            None, None, str(salvo), Path(arquivo.filename).name,
-            None, None, "REVISAR", "Aguardando conferência manual.",
-        )
-        return {"id_folha": id_folha, "status_ocr": "REVISAR"}
-    except Exception:
-        if salvo is not None:
-            salvo.unlink(missing_ok=True)
-        raise
-    finally:
-        caminho.unlink(missing_ok=True)
-
-
-@app.post("/servidores/importar")
-async def importar_servidores(arquivo: UploadFile = File(...)):
-    caminho = await salvar_planilha_temporaria(arquivo)
-    try:
-        return importar_planilha(caminho)
-    finally:
-        caminho.unlink(missing_ok=True)
 
 
 @app.post("/folhas/enviar-lote", status_code=200)
@@ -329,6 +178,11 @@ def enviar_lote(
         folhas = listar_folhas_para_envio(ano, mes, ids_int)
         if len(folhas) != len(ids_int):
             raise HTTPException(status_code=422, detail="Uma ou mais folhas não foram encontradas.")
+        for folha in folhas:
+            try:
+                validar_folha_envio(folha)
+            except ValueError as error:
+                raise HTTPException(422,str(error)) from error
         resultados = [enviar_folha_do_banco(folha) for folha in folhas]
         if any(item["status"] != "ENVIADO" for item in resultados):
             raise HTTPException(status_code=502, detail="Não foi possível enviar todas as folhas. Confira o histórico de envio antes de criar um novo lote.")
@@ -346,5 +200,29 @@ def enviar_lote(
 # Rotas novas mantidas em módulos separados; a importação reutiliza o limite existente.
 from backend.routes.calendario import criar_router as criar_router_calendario
 from backend.routes.geracao import router as router_geracao
-app.include_router(criar_router_calendario(salvar_planilha_temporaria))
+app.include_router(criar_router_calendario(salvar_calendario_temporario))
 app.include_router(router_geracao)
+
+from backend.routes.integracao import criar_router as criar_router_integracao
+app.include_router(criar_router_integracao(salvar_upload_temporario, salvar_planilha_temporaria))
+
+class LeaseMiddleware:
+    def __init__(self, app): self.app=app
+
+    async def __call__(self, scope, receive, send):
+        if scope['type']!='http' or scope['method'] in {'GET','HEAD','OPTIONS'} or scope['path'].startswith('/sistema/lock') or scope['path']=='/folhas/geradas/download-lote':
+            return await self.app(scope,receive,send)
+        conn=None
+        try:
+            client=dict(scope.get('headers',[])).get(b'x-client-id')
+            conn=await run_in_threadpool(lease.iniciar_mutacao,client.decode() if client else None)
+            await self.app(scope,receive,send)
+        except HTTPException as error:
+            await JSONResponse({'detail':error.detail},status_code=error.status_code)(scope,receive,send)
+        finally:
+            if conn is not None: await run_in_threadpool(lease.finalizar_mutacao,conn)
+
+app.add_middleware(LeaseMiddleware)
+
+from backend.routes.emails import router as router_emails
+app.include_router(router_emails)

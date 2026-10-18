@@ -52,7 +52,7 @@ class TestCalendarioIntegracao(unittest.TestCase):
         self.smtp = patcher.start(); self.addCleanup(patcher.stop)
         with self.connect() as conn:
             conn.execute(Path('database/folha_pontos.sql').read_text())
-        self.professor = request('POST', '/servidores', dict(name='Ana Silva', registration='12345', email='ana@example.com', department='Ensino', workload=40))[1]['id_servidor']
+        self.professor = request('POST', '/servidores', dict(name='Ana Silva', registration='12345', cpf='00000012345', email='ana@example.com', department='Ensino', workload=40))[1]['id_servidor']
 
     def connect(self):
         return psycopg.connect(self.dsn, options=f'-c search_path={self.schema}')
@@ -118,6 +118,7 @@ class TestCalendarioIntegracao(unittest.TestCase):
         status, doc = self.generate()
         self.assertEqual(status, 201, doc)
         self.assertEqual(doc['situacao'], 'MODELO_EM_BRANCO')
+        self.assertEqual(doc['nome_arquivo'], 'Ana_Silva-2027-02.pdf')
         self.assertEqual(doc['id_folha_referencia'], folha)
         self.assertNotIn('caminho_arquivo', doc)
         docid = doc['id_documento']
@@ -135,10 +136,17 @@ class TestCalendarioIntegracao(unittest.TestCase):
         self.assertEqual(request('GET', f'/folhas/geradas/{docid}/download')[1], pdf)
         second = self.generate(nova_versao=True)[1]
         self.assertEqual(second['versao'], 2)
+        self.assertEqual(second['nome_arquivo'], 'Ana_Silva-2027-02.pdf')
+        status, zipdata = request('POST', '/folhas/geradas/download-lote', dict(ids_documentos=[docid, second['id_documento']]))
+        self.assertEqual(status, 200)
+        with ZipFile(io.BytesIO(zipdata)) as archive:
+            self.assertEqual(archive.namelist(), ['documento_1/Ana_Silva-2027-02.pdf', 'documento_2/Ana_Silva-2027-02.pdf'])
+            self.assertEqual(archive.read(archive.namelist()[0]), pdf)
         self.assertEqual(request('GET', f'/folhas/geradas/{second["id_documento"]}')[1]['eventos'], [])
         self.assertEqual(len(request('GET', '/folhas/geradas?competencia=2027-02')[1]), 2)
         self.assertEqual(original.read_bytes(), b'original imutavel')
-        self.assertEqual(repository.buscar_folha_para_envio(folha)['caminho_arquivo'], str(original))
+        with self.connect() as conn:
+            self.assertEqual(conn.execute('SELECT caminho_arquivo FROM folha_ponto WHERE id_folha=%s',(folha,)).fetchone()[0],str(original))
         self.smtp.assert_not_called()
         with self.connect() as conn:
             self.assertEqual(conn.execute('SELECT count(*) FROM envio').fetchone()[0], 0)

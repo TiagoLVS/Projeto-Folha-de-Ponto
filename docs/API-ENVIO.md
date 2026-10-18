@@ -1,52 +1,55 @@
-# Envio síncrono de folhas
+# Envio SMTP e histórico
 
-`POST /api/timesheets/send` encaminha o lote para `POST /folhas/enviar-lote`. O backend consulta as folhas no PostgreSQL, envia cada mensagem por SMTP e registra o resultado em `envio`. Não existe fila nem processamento em segundo plano implementado.
+## Folhas recebidas: aptidão e confirmação
 
-## Contrato
+Para folhas recebidas/preenchidas, o backend só permite enviar folha ativa, vinculada a servidor/competência, confirmada e com `status_ocr = 'OK'`, arquivo presente e e-mail válido. `listar_folhas_para_envio` aplica status/atividade/confirmação no SQL; o serviço revalida arquivo e endereço antes do SMTP. Uma seleção com folha ausente/inapta retorna 422 antes de iniciar o lote.
 
-O header `Idempotency-Key` é obrigatório (1 a 255 caracteres). O corpo contém IDs reais de professores, sem duplicatas:
+Confirmar uma folha recebida por PATCH tenta enviar depois de salvar o vínculo. O envio automático tem chave baseada em documento, hash/versão, vínculo, destinatário e modo de teste. Repetir a mesma confirmação recupera o resultado anterior. Ausência de configuração retorna NAO_CONFIGURADO sem desfazer a confirmação. Falhas SMTP são registradas. Geração de modelos não envia.
 
-```json
-{"month":"2026-09","professorIds":["1","2"]}
+## Configuração
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURITY=ssl
+SMTP_USER=
+SMTP_PASSWORD=
+DIGEP_EMAIL=remetente@exemplo.com
+DIGEP_SENHA_APP=senha_de_app_local
+DIGEP_MODO_TESTE=true
 ```
 
-Sucesso: HTTP 200, após todas as mensagens serem aceitas pelo serviço de e-mail:
+SMTP_USER vazio usa DIGEP_EMAIL; SMTP_PASSWORD vazio usa DIGEP_SENHA_APP. O remetente usa DIGEP_EMAIL ou, na ausência, SMTP_USER. Suporta SSL e STARTTLS com contexto TLS padrão; para STARTTLS configure a porta do provedor, normalmente 587. Gmail permanece compatível. O servidor institucional pode ser configurado sem editar código. Credenciais não são versionadas.
 
-```json
-{"jobId":"chave-do-lote","status":"completed","sentCount":2}
-```
+Modo de teste **envia de verdade ao remetente**, em vez do professor. Os testes automatizados simulam SMTP e nunca enviam e-mails reais.
 
-`jobId` identifica a requisição; não representa um job em fila. A resposta não comprova entrega na caixa de entrada do destinatário.
+## Lote e seleção
 
-## Idempotência
+`POST /folhas/enviar-lote` recebe `{"month":"2026-10","professorIds":["1","2"]}` e exige `Idempotency-Key`. IDs distintos, professor individual, seleção múltipla e todos aptos são suportados pela interface. O filtro de ainda não enviados exclui ENVIADO/PROCESSANDO. A quantidade exibida corresponde à seleção efetivamente enviada.
 
-A tabela `idempotency_request` reserva a chave antes do envio. Uma restrição única garante que apenas uma requisição com essa chave inicia o lote, inclusive entre processos concorrentes.
+O processamento é síncrono. Sucesso: `{"jobId":"chave","status":"completed","sentCount":2}`. Mesma chave/payload recupera resultado; chave com outro payload retorna 409. Requisição em andamento também retorna 409. O timeout de 20 segundos do frontend não cancela um SMTP já iniciado: consulte novamente com a mesma chave. Após falha parcial, confira o histórico antes de criar outro lote; o mesmo lote não reenvia os sucessos automaticamente.
 
-- Mesma chave e conteúdo: retorna a resposta e o código HTTP armazenados, sem reenviar.
-- Mesmos IDs em ordem diferente: são o mesmo conteúdo.
-- Mesma chave e conteúdo diferente: HTTP 409.
-- Lote ainda em processamento: HTTP 409; consultar novamente com a mesma chave.
-- Chave ausente, IDs/competência inválidos: HTTP 422 antes de reservar o lote.
-- Falha durante o lote: guarda o erro; repetir a chave não reenvia os e-mails que já podem ter sido enviados.
+SMTP não oferece garantia universal de entrega exatamente uma vez: se o provedor aceitar a mensagem e a conexão cair antes da confirmação, o resultado é ambíguo. A idempotência impede repetição automática da requisição; reenvio manual exige conferência.
 
-O frontend conserva a chave durante a tentativa e, quando sessionStorage está disponível, após recarregar a mesma aba. O timeout de 20 segundos cancela a espera do navegador, mas não significa que o backend deixou de enviar. “Tentar novamente” reutiliza a chave.
+## Histórico e reenvio
 
-Envios SMTP não são uma transação com o PostgreSQL. Um lote pode ter sucesso parcial. Se o processo cair depois de enviar e antes de salvar o resultado, a chave pode permanecer `PROCESSANDO`; é preciso conferir o histórico antes de decidir qualquer reenvio. O sistema não retoma automaticamente lotes interrompidos nem impede duplicação feita com **outra chave** (por exemplo, em outra aba).
+`GET /emails/historico` aceita nome, matricula, cpf, status e competencia. Relaciona envio, folha, servidor e competência, retornando id, id_folha, nome, matrícula, CPF, competência, status, criado_em e mensagem. PENDENTE do banco é apresentado como PROCESSANDO. Logs de revisões arquivadas continuam no histórico.
 
-Bancos anteriores precisam de `database/migrations/001_idempotency_request.sql`. O schema completo já contém a tabela para novas instalações.
+`POST /emails/reenviar-erros` recebe `{"log_ids":[1,2]}` e exige Idempotency-Key. Só processa logs ERRO, deduplica por folha, ignora sucesso/PENDENTE posterior, folha removida/sem arquivo/inapta e registra outra tentativa. Retorna reenviados, ignorados, falhas e detalhes; falha de um reenvio não é contada como sucesso. A interface tem filtros por CPF e checkboxes para escolher erros.
 
-## Anexos e configuração
+A consulta e a revalidação acontecem no servidor. Mutações HTTP compartilham o lease PostgreSQL e chaves persistentes; duas sessões não executam reenvios concorrentes sobre a aplicação.
 
-O tipo MIME é determinado pela extensão: PDF → `application/pdf`, JPG/JPEG → `image/jpeg`, PNG → `image/png`. As credenciais ficam no backend; `BACKEND_URL` fica no ambiente do servidor do frontend.
+## Modelos em branco: enviar todos sem abrir PDFs
 
-O modo de teste de e-mail redireciona mensagens ao remetente; ele ainda envia mensagens reais. Os testes automatizados simulam SMTP.
+Na tela **Gerar folhas**, selecione a competência e use **Enviar todas por e-mail**, ou selecione documentos no histórico e use **Enviar selecionadas por e-mail**. A prévia lista destinatários e a versão mais recente de cada servidor naquele mês. Confirme Enviar N folhas; a interface acompanha o progresso, resultados individuais e falhas. Não é necessário abrir PDF, executar OCR ou confirmar vínculo de folha recebida. Gerar sozinho continua sem enviar automaticamente.
 
-## Disparo na confirmação
+GET `/folhas/geradas/para-envio?competencia=AAAA-MM` consulta arquivos, e-mails e envios anteriores. Configuração SMTP ausente é informada antes de enviar. Modo de teste mostra o destinatário real (remetente); ele envia mensagens de verdade, conforme a configuração já existente.
 
-`PATCH /folhas/{id}` agora confirma o vínculo e dispara o e-mail depois do commit. A resposta mantém os campos de confirmação e acrescenta `envio: {status, mensagem}`. Status possíveis: `ENVIADO`, `NAO_CONFIGURADO`, `PROCESSANDO` e `ERRO`. Um problema no envio não desfaz o vínculo nem muda o sucesso da confirmação para erro HTTP.
+POST `/folhas/geradas/enviar-lote` recebe ids_documentos, competencia e Idempotency-Key. Só envia versões mais recentes, do mês solicitado, com arquivo na pasta permitida e e-mail válido. Os limites reutilizam MAX_GENERATION_BATCH. Documentos antigos/ausentes/inaptos falham individualmente. ENVIADO ou PENDENTE para o mesmo documento/destinatário impede repetir o envio, inclusive com outra chave. Reenvio de falha é registrado como nova tentativa.
 
-O arquivo e destinatário são capturados na transação da confirmação. A chave automática depende da folha, arquivo, professor, competência, destinatário efetivo e modo de teste. Repetir a confirmação recupera o resultado persistido, sem outro SMTP. Mudar o vínculo, documento ou destino permite novo envio. O modo de teste envia ao remetente. Configuração ausente não reserva uma chave: pode-se configurar e tentar novamente. Erros SMTP ou resultado incerto não geram reenvio automático; confira o histórico antes de um envio manual. Envios pelo botão de lote continuam independentes e podem reenviar uma folha já enviada automaticamente.
+Uma confirmação do usuário inicia requisições sequenciais de um documento por vez, com chave estável por item e prazo de 900 s em cliente/proxy. Não abre outra conexão SMTP enquanto a anterior é processada. Progresso e resultados são exibidos; **Continuar envio** reutiliza as chaves do lote após interrupção de conexão. Não há fila de processamento. A idempotência não garante entrega exatamente uma vez em toda falha possível do provedor SMTP; PENDENTE evita repetição automática em resultado ambíguo.
 
-## Calendário e modelos em branco
+A migração **005_envio_modelos.sql** permite registrar recebidas e geradas na mesma tabela envio: cada registro tem exatamente um id_folha ou id_documento. O histórico mostra tipo de documento/destinatário e o reenvio de erros contempla modelos em branco. Não mistura modelos em branco com frequência confirmada: gerar/enviar modelo não cria folha_ponto nem altera status OCR.
+# Reenvio explícito de modelos em branco
 
-As novas rotas `/folhas/gerar` e `/folhas/gerar-lote` armazenam modelos em `folha_gerada` e não chamam os serviços de e-mail. As consultas de envio continuam usando `folha_ponto`. Eventos do calendário e PDFs gerados não aprovam frequência nem entram automaticamente no lote de envio. O envio ao confirmar uma folha recebida permanece como antes. Veja [Calendário e geração](CALENDARIO-GERACAO.md).
+No diálogo de envio em Gerar folhas, marque **Incluir folhas já enviadas (enviar novamente)** para autorizar outro envio. `POST /folhas/geradas/enviar-lote` aceita `reenviar: true`; por padrão, continua ignorando documentos já enviados. Uma nova confirmação usa nova chave de idempotência, enquanto Continuar envio conserva a chave e não repete mensagens concluídas. Envios PENDENTE continuam bloqueados mesmo com autorização de reenvio. Cada reenvio cria um novo registro no histórico, sem migração adicional.

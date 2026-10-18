@@ -5,6 +5,8 @@ import math
 import mimetypes
 import hashlib
 import json
+import ssl
+from pathlib import Path
 
 from datetime import datetime
 from email.message import EmailMessage
@@ -57,8 +59,8 @@ def carregar_configuracao_email():
     variáveis de ambiente.
     """
 
-    email_remetente = os.getenv("DIGEP_EMAIL")
-    senha_app = os.getenv("DIGEP_SENHA_APP")
+    email_remetente = os.getenv("DIGEP_EMAIL") or os.getenv("SMTP_USER")
+    senha_app = os.getenv("SMTP_PASSWORD") or os.getenv("DIGEP_SENHA_APP")
 
     modo_teste = os.getenv(
         "DIGEP_MODO_TESTE",
@@ -165,20 +167,19 @@ def enviar_email(
     senha_app
 ):
     try:
-        with smtplib.SMTP_SSL(
-            "smtp.gmail.com",
-            465,
-            timeout=30
-        ) as servidor:
-
-            servidor.login(
-                email_remetente,
-                senha_app
-            )
-
-            servidor.send_message(
-                mensagem
-            )
+        host = os.getenv('SMTP_HOST','smtp.gmail.com')
+        port = int(os.getenv('SMTP_PORT','465'))
+        security = os.getenv('SMTP_SECURITY','ssl').lower()
+        if security not in ('ssl','starttls'):
+            raise ValueError('SMTP_SECURITY deve ser ssl ou starttls.')
+        factory = smtplib.SMTP_SSL if security=='ssl' else smtplib.SMTP
+        with factory(host, port, timeout=30) as servidor:
+            if security=='starttls':
+                servidor.ehlo()
+                servidor.starttls(context=ssl.create_default_context())
+                servidor.ehlo()
+            servidor.login(os.getenv('SMTP_USER') or email_remetente, senha_app)
+            servidor.send_message(mensagem)
 
         return (
             "ENVIADO",
@@ -198,6 +199,17 @@ def enviar_email(
 # ENVIO DA FOLHA ARMAZENADA NO BANCO
 # ============================================================
 
+def validar_folha_envio(folha):
+    if not folha or folha.get('status_ocr') != 'OK' or not folha.get('confirmado_em') or not folha.get('ativo', True):
+        raise ValueError('A folha deve estar ativa, vinculada e confirmada com status OCR OK.')
+    if not folha.get('id_servidor') or not folha.get('id_competencia'):
+        raise ValueError('Folha sem vínculo de servidor e competência.')
+    if not email_valido(folha.get('email')):
+        raise ValueError('E-mail do servidor inválido.')
+    if not Path(folha.get('caminho_arquivo','')).is_file():
+        raise ValueError('Arquivo da folha não encontrado.')
+
+
 def enviar_folha_do_banco(folha):
     """
     Envia uma folha persistida e registra
@@ -206,20 +218,36 @@ def enviar_folha_do_banco(folha):
 
     from backend.database.repository import (
         criar_envio,
-        finalizar_envio
     )
 
+    validar_folha_envio(folha)
     id_envio = criar_envio(
         folha["id_folha"],
         folha["email"]
     )
 
+    return enviar_arquivo_registrado(id_envio,folha['nome'],folha['email'],folha['caminho_arquivo'])
+
+
+def enviar_arquivo_registrado(id_envio,nome,email,caminho,competencia=None):
+    """Preparação e SMTP comuns, com resultado registrado no mesmo histórico."""
     mensagem, status, erro = preparar_email(
-        folha["nome"],
-        folha["email"],
-        folha["caminho_arquivo"],
-        os.getenv("DIGEP_EMAIL", "")
+        nome,
+        email,
+        caminho,
+        os.getenv("DIGEP_EMAIL") or os.getenv("SMTP_USER", "")
     )
+
+    if status == "PENDENTE" and competencia:
+        # O nome físico pode ser legado (ID/UUID). O destinatário recebe um nome legível.
+        from backend.services.folhas_recebidas import sanitizar_nome
+        nome_anexo=f'{sanitizar_nome(nome)}-{competencia}.pdf'
+        for anexo in mensagem.iter_attachments():
+            anexo.set_param('filename',nome_anexo,header='Content-Disposition',replace=True)
+        mensagem.replace_header('Subject',f'Folha de ponto para preenchimento - {competencia}')
+        corpo=mensagem.get_body(preferencelist=('plain',))
+        if corpo is not None:
+            corpo.set_content(f'Olá, {nome}!\n\nSegue sua folha de ponto em branco referente a {competencia}, para preenchimento.\n\nAtenciosamente,\nDIGEP')
 
     if status == "PENDENTE":
         try:
@@ -243,6 +271,7 @@ def enviar_folha_do_banco(folha):
             status = "ERRO"
             erro = str(falha)
 
+    from backend.database.repository import finalizar_envio
     finalizar_envio(
         id_envio,
         status,
@@ -262,6 +291,7 @@ def enviar_apos_confirmacao(folha):
         registrar_requisicao_idempotente,
         finalizar_requisicao_idempotente,
     )
+    validar_folha_envio(folha)
     try:
         remetente, _, modo_teste = carregar_configuracao_email()
     except RuntimeError:
@@ -274,6 +304,8 @@ def enviar_apos_confirmacao(folha):
         "id_servidor": folha["id_servidor"],
         "id_competencia": folha["id_competencia"],
         "arquivo": folha["caminho_arquivo"],
+        "sha256": folha.get("sha256"),
+        "versao": folha.get("versao", 1),
         "destinatario": remetente if modo_teste else folha["email"],
         "modo_teste": modo_teste,
     }

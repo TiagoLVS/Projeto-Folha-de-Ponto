@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmationDialog } from '@/components/confirmation-dialog';
+import { MultipageCandidates } from './multipage-candidates';
 import { TimesheetUpload } from '@/components/timesheet-upload';
 import { useSystemLock } from '@/components/system-lock';
 import { confirmDocument, deleteDocument, listTimesheets, processDocument, fromRemoteSheet, validMonth } from '@/lib/timesheet-api';
@@ -86,6 +87,7 @@ export function DocumentSheet({ professor, professors, month, onMonth, onBack, o
   }
   return <div className="view-enter"><Button variant="ghost" className="back-button" disabled={busy} onClick={onBack}><ArrowLeft size={16} />Voltar ao professor</Button>
     <div className="page-heading"><div><p className="eyebrow">DOCUMENTO DE PONTO</p><h1>{professor.name}</h1><p>Matrícula: {professor.registration}</p></div><label className="month-control">Competência<Input type="month" min="2000-01" max="2099-12" value={month} disabled={busy} aria-label="Competência da folha" onChange={e => { if (validMonth(e.target.value)) onMonth(e.target.value); }} /></label></div>
+    <MultipageCandidates professors={professors} refresh={Date.parse(sheet?.updatedAt ?? "")} onSaved={() => void refresh()} />
     {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error}</AlertDescription></Alert>}
     <section className="table-card uploaded-sheet-card"><div className="table-toolbar"><h2>{monthLabel(month)}</h2><span role="status" className={`status-badge status-${sheet?.confirmedAt ? 'done' : sheet?.status === 'error' ? 'error' : sheet ? 'progress' : 'empty'}`}>{sheetStatus(sheet)}</span><Button variant="outline" disabled={busy} onClick={() => void refresh()}>Atualizar</Button></div>
       <div className="document-body">
@@ -102,7 +104,7 @@ export function DocumentSheet({ professor, professors, month, onMonth, onBack, o
             {editing ? <><div className="space-y-2"><Label htmlFor="link-professor">Servidor para vínculo</Label><NativeSelect id="link-professor" value={target} disabled={busy || blocked} onChange={e => setTarget(e.target.value)}>{professors.map(p => <NativeSelectOption key={p.id} value={p.id}>{p.name} · {p.registration}</NativeSelectOption>)}</NativeSelect></div><div className="space-y-2"><Label htmlFor="link-month">Competência para vínculo</Label><Input id="link-month" type="month" min="2000-01" max="2099-12" value={period} disabled={busy || blocked} onChange={e => setPeriod(e.target.value)} /></div><Button disabled={busy || blocked || !target || !validMonth(period)} onClick={() => void requestConfirmation()}>Confirmar validação e vínculo</Button></> : <Button variant="outline" disabled={busy || blocked} onClick={() => { setTarget(professor.id); setPeriod(month); setEditing(true); }}>Corrigir vínculo</Button>}
           </section></>}
       </div></section>
-    <ConfirmationDialog open={removeOpen} title="Remover folha do servidor?" description="O documento original e seu registro serão excluídos no servidor. A remoção só será refletida na tela após a confirmação do backend." busy={busy} disabled={blocked} confirmLabel="Remover folha" onConfirm={() => void remove()} onCancel={() => setRemoveOpen(false)} />
-    <ConfirmationDialog open={confirmOpen} title={overwriteId ? 'Sobrescrever vínculo existente?' : 'Validar folha?'} description={overwriteId ? 'Já existe outra folha para esse servidor e competência. Deseja sobrescrever o arquivo e o vínculo existentes?' : 'Confirma que o documento e os dados do vínculo foram conferidos? O backend atual pode iniciar o envio automático após validar.'} busy={busy} disabled={blocked} confirmLabel={overwriteId ? 'Sobrescrever' : 'Validar'} onConfirm={() => void confirm()} onCancel={() => setConfirmOpen(false)} />
+    <ConfirmationDialog open={removeOpen} title="Remover folha do servidor?" description="A folha será retirada do histórico ativo. O servidor preserva a revisão anterior e os registros de envio." busy={busy} disabled={blocked} confirmLabel="Remover folha" onConfirm={() => void remove()} onCancel={() => setRemoveOpen(false)} />
+    <ConfirmationDialog open={confirmOpen} title={overwriteId ? 'Sobrescrever vínculo existente?' : 'Validar folha?'} description={overwriteId ? 'Já existe outra folha para esse servidor e competência. Deseja preservar a anterior como OLD e confirmar este vínculo?' : 'Confirma que o documento e os dados do vínculo foram conferidos? A confirmação inicia uma tentativa de envio automático.'} busy={busy} disabled={blocked} confirmLabel={overwriteId ? 'Sobrescrever' : 'Validar'} onConfirm={() => void confirm()} onCancel={() => setConfirmOpen(false)} />
   </div>;
 }

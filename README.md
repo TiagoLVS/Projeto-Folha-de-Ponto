@@ -1,122 +1,113 @@
-# Sistema de Gestão de Folhas de Ponto — UnDF
+# Folha de Ponto — UnDF
 
-Aplicação para cadastrar professores, importar planilhas, reconhecer matrícula e competência em folhas de ponto, enviar os documentos por e-mail, gerenciar o calendário acadêmico e gerar modelos de folhas em PDF.
+Cadastro de servidores com CPF, importação Excel em duas etapas, recebimento de PDFs, identificação por página, conferência, calendário acadêmico, geração institucional de folhas e envio SMTP com histórico. Frontend React/Next.js e FastAPI utilizam PostgreSQL e arquivos no servidor para reconstruir o histórico em qualquer navegador.
 
-## Estrutura
-
-- `backend/`: API FastAPI, acesso ao PostgreSQL, OCR e envio SMTP.
-- `frontend/`: React/TypeScript, Vinext/Vite e rotas intermediárias para a API.
-- `database/`: schema completo e migrações para bancos existentes.
-- `data/entrada/`: exemplos de planilhas e documentos para testes manuais.
-- `data/folhas/`: originais armazenados durante processamento ou conferência manual; não versionados.
-- `tests/` e `frontend/tests/`: testes automatizados.
-- `docs/`: contratos de documentos e envio.
+Novos PDFs gerados usam nomes como `Ana_Silva-2026-10.pdf`: somente nome e competência. Versões e homônimos permanecem em pastas distintas; no ZIP, nomes repetidos ficam em subpastas para evitar sobrescritas. O mesmo nome é utilizado no download, no ZIP e no anexo do e-mail. Documentos antigos conservam seus nomes no armazenamento; ao enviar por e-mail, o anexo também recebe nome do servidor e competência, mesmo que o arquivo original tenha ID/UUID.
 
 ## Pré-requisitos
 
-Python 3.12+, Node.js 22.13+ (CI usa 24), pnpm na versão de `frontend/package.json`, PostgreSQL 17+ com banco UTF-8 (CI usa 18) e Tesseract com o idioma português.
+- Python 3.12+ e `venv`/pip.
+- Node.js 22.13+ (recomendado 24) e pnpm 11.25.0.
+- PostgreSQL 17+ em UTF-8 (testes com 18).
+- Tesseract com idioma português para PDFs digitalizados. PDFs com texto digital utilizam primeiro esse conteúdo.
+- Linux/Bash, `setsid`, `flock` e `sha256sum` para `iniciar.sh`. Em outros sistemas, use os comandos separados abaixo.
 
-No Ubuntu/Debian, instale as ferramentas necessárias:
+Não existe distribuição portátil sem instalação. LibreOffice não é necessário na aplicação: os PDFs são desenhados com PyMuPDF. `.xls` de servidores usa a dependência explícita `xlrd`; calendário continua `.xlsx`.
 
-```bash
-sudo apt install python3-venv postgresql postgresql-client tesseract-ocr tesseract-ocr-por
-```
+## Preparar banco e ambiente
 
-Node.js e pnpm devem estar disponíveis no terminal. Confira o idioma do OCR com `tesseract --list-langs`: a lista deve incluir `por`.
+Na pasta que contém `backend/`, `frontend/` e `iniciar.sh`, crie `.env` a partir de `.env.example` e `frontend/.env.local` a partir de `frontend/.env.local.example`, **somente se ainda não existirem**. Configure DB_HOST, DB_PORT, DB_NAME, DB_USER e DB_PASSWORD. `BACKEND_URL` do frontend aponta normalmente para `http://127.0.0.1:8000`.
 
-## Banco e variáveis de ambiente
-
-Execute os comandos a seguir na raiz deste repositório, onde estão `backend/` e `frontend/`.
-
-Crie um usuário e um banco para a aplicação (exemplo local; escolha uma senha ao ser solicitado):
+Banco **novo e vazio**, usando o usuário proprietário:
 
 ```bash
-sudo -u postgres createuser --pwprompt folha_app
-sudo -u postgres createdb --owner=folha_app folha_pontos
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 --single-transaction -f database/folha_pontos.sql
 ```
 
-Copie os exemplos **somente se seus arquivos de configuração ainda não existirem**, para preservar suas credenciais:
+Banco **existente**: faça backup com `pg_dump -Fc` e copie também `data/folhas/`. Aplique somente as migrações, nesta ordem:
 
 ```bash
-cp .env.example .env
-cp frontend/.env.local.example frontend/.env.local
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/001_idempotency_request.sql
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/002_atualizacao_calendario.sql
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/003_integracao_sistema.sql
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/004_refinamentos.sql
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/005_envio_modelos.sql
 ```
 
-Edite `.env` com `DB_NAME=folha_pontos`, `DB_USER=folha_app`, `DB_PASSWORD` e os demais dados de conexão. `TESSERACT_CMD` pode ficar vazio quando o executável estiver no PATH. `OCR_LANG=por` seleciona português. O frontend usa `BACKEND_URL=http://127.0.0.1:8000`.
+O SQL completo é exclusivo para instalações novas. As migrações preservam cadastros, CPF nulo legado, folhas, envios, calendário e modelos gerados. O script de inicialização **não aplica SQL automaticamente**. Detalhes e verificação em [Alterações do banco](docs/ALTERACOES-BANCO.md).
 
-Para um **banco novo e vazio**, crie as tabelas:
-
-```bash
-psql -h localhost -U folha_app -d folha_pontos -v ON_ERROR_STOP=1 -f database/folha_pontos.sql
-```
-
-Para um **banco já existente**, faça backup e aplique as migrações incrementais:
-
-```bash
-psql -h localhost -U folha_app -d folha_pontos -v ON_ERROR_STOP=1 -f database/migrations/001_idempotency_request.sql
-psql -h localhost -U folha_app -d folha_pontos -v ON_ERROR_STOP=1 -f database/migrations/002_atualizacao_calendario.sql
-```
-
-A primeira migração adiciona idempotência; a segunda adiciona calendário, importações e histórico dos modelos gerados. Nenhuma recria professores, competências, folhas ou envios. Confira o procedimento de backup, pré-requisitos e verificação em [Alterações do banco](docs/ALTERACOES-BANCO.md). Não execute o schema completo sobre um banco já inicializado.
-
-O limite padrão é 15 MB (`MAX_UPLOAD_BYTES=15728640`), igual ao da interface. Se mudar o limite no backend, ajuste também a validação do frontend. `CORS_ORIGINS` aceita origens separadas por vírgula; a origem local padrão é `http://localhost:5173`.
-
-## Iniciar com o script
-
-Depois de configurar os arquivos `.env` e instalar/atualizar o banco, na pasta onde está `iniciar.sh`:
+## Iniciar
 
 ```bash
 bash iniciar.sh
 ```
 
-O script inicia backend e frontend. Abra http://localhost:5173 (ou o endereço indicado no terminal). Use Ctrl+C para encerrar. Ele instala dependências se `.venv`/`node_modules` estiverem ausentes, mas **não cria nem migra o banco**. As instruções abaixo permitem iniciar os serviços separadamente.
+O script cria o ambiente Python, instala dependências quando o arquivo de requisitos muda, atualiza dependências frontend quando necessário, verifica banco/migração, avisa sobre Tesseract e inicia os serviços. Falha do uvicorn é exibida; quando um serviço termina, o outro é encerrado. Ctrl+C encerra somente os grupos de processos criados pelo script.
 
-## Iniciar o backend
+Se o banco estiver desatualizado, o script informa quais migrações faltam. No terminal interativo, pede autorização antes de aplicá-las. Após backup, você também pode autorizar explicitamente:
 
-No primeiro terminal:
+```bash
+bash iniciar.sh --migrar
+```
+
+Isso aplica somente as migrações pendentes, sem recriar o banco. Jornadas incompatíveis com 20h/40h interrompem a migração e precisam de correção manual. Sem confirmação ou `--migrar`, o banco não é alterado. Para apenas diagnosticar dependências e banco:
+
+```bash
+bash iniciar.sh --verificar
+```
+
+A reinicialização após Ctrl+C aceita conexões antigas em TIME_WAIT; isso não indica um servidor ativo. Portas realmente ocupadas são informadas sem encerrar processos existentes. Para escolher outras portas, execute `BACKEND_PORT=8001 FRONTEND_PORT=5174 bash iniciar.sh`; o proxy acompanha automaticamente a porta do backend. As URLs só são exibidas como prontas depois que ambos os serviços responderem.
+
+Frontend: http://localhost:5173. Backend: http://127.0.0.1:8000. Swagger: http://127.0.0.1:8000/docs.
+
+Para iniciar separadamente:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r backend/requirements.txt
-python -m uvicorn backend.api:app --reload --port 8000
+python -m uvicorn backend.api:app --port 8000
 ```
 
-Se você já usa um ambiente virtual, pode ativá-lo e reutilizá-lo. No Windows, a ativação é `.venv\Scripts\Activate.ps1` no PowerShell. A documentação da API fica em http://localhost:8000/docs.
-
-## Iniciar o frontend
-
-No segundo terminal:
+Em outro terminal:
 
 ```bash
 cd frontend
-npx pnpm@11.25.0 install --frozen-lockfile
-npx pnpm@11.25.0 dev
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-Abra http://localhost:5173 ou o endereço mostrado no terminal. Mantenha ambos os serviços em execução.
+## Uso
 
-## Uso e envio de e-mail
+- **Servidores:** carga horária selecionável de **20h ou 40h**, acumulação **Sim/Não**, cadastro/edição com CPF de 11 dígitos, aceitando máscara. Cadastro novo exige CPF; legados sem CPF permanecem editáveis. CPF e matrícula são únicos. Busca aceita nome, matrícula e CPF. Exclusão de servidor com vínculos retorna 409.
+- **Importar Excel:** `.xls` ou `.xlsx`, até 15 MB, com Nome, Matrícula, CPF, E-mail, Carga Horária e Acumula cargo (Sim/Não). Departamento não é obrigatório. A prévia não altera cadastros; a confirmação usa token de 15 minutos e Idempotency-Key. `20h`/`40h` viram inteiros; Sim/Não/Nao viram booleanos. Matrícula identifica atualizações e CPF de outra matrícula é conflito.
+- **Folhas recebidas:** até 20 PDFs por lote na interface, com servidor/competência por arquivo e resultado individual. Somente PDF com MIME application/pdf, assinatura e conteúdo válidos, até 15 MB por arquivo. Falha de um item não cancela os demais. JPG/PNG não são aceitos no fluxo atual.
+- **Duplicidade:** sem autorização, retorna 409. Substituir preserva a revisão anterior como `_OLD_AAAAMMDD-HHMMSS.pdf` e cria outra folha em revisão, sem confirmação ou envio herdado. O original ativo fica em `data/folhas/Folhas_AAAA-MM/Nome_do_servidor-AAAA-MM.pdf`.
+- **Histórico:** folhas, resultados de OCR, confirmação e último envio vêm do servidor. Folhas antigas sem vínculo podem ser conferidas na seção de pendentes. Remover uma folha retira-a do histórico ativo e preserva arquivo/histórico de revisão.
+- **PDF multipágina:** processar identifica cada página isoladamente. Candidatas, duplicidades e páginas ainda não importadas persistem no banco e aparecem na interface. Importe cada página com vínculo conferido; substituir exige nova autorização. O PDF completo permanece preservado.
+- **Calendário:** visualização mensal, filtros, CRUD e importação `.xlsx` com Data e Especificação ou **PDF**. PDF digital usa texto; páginas escaneadas usam Tesseract automaticamente. A prévia PDF exige conferência/confirmar antes de gravar datas; relatório com página, origem e inválidos. Para trocar um calendário inteiro, selecione o ano e marque **Substituir calendário de AAAA** antes de enviar o arquivo; confira a prévia e confirme a substituição. Outros anos e PDFs existentes são preservados. O contrato único é `/datas-especiais`.
+- **Gerar folhas:** botão **Gerar folhas** na área principal. Escolha competência/professores, gere individualmente ou em lote de **até 500**, autorize novas versões e consulte/baixe PDF ou ZIP do histórico. Servidores com PDF já gerado na competência saem da seleção e continuam no histórico para download; outra versão exige a opção explícita. O modelo `institucional-v1` segue o DOCX de referência e não imprime CPF. UA, cargo, padrão, função e exercício ficam vazios quando não possuem fonte no cadastro. Departamento não é usado como UA.
+- **Modelos em branco por e-mail:** em Gerar folhas, use **Enviar todas por e-mail** e confirme o lote. Cada servidor recebe sua versão mais recente da competência, com progresso, histórico e reenvio de falhas, sem abrir os PDFs e sem OCR. Exige migração 005 e SMTP configurado.
+- **Envios de folhas recebidas:** checkbox individual, seleção de aptos e filtro dos ainda não enviados. O backend exige vínculo, confirmação, OCR OK, arquivo presente e e-mail válido. O histórico permite filtrar nome/matrícula/CPF/status/competência e selecionar erros para reenvio idempotente.
+- **Uso compartilhado:** cada sessão adquire um lease PostgreSQL, renovado periodicamente. Outro cliente mantém consultas e tem mutações bloqueadas; o lease expira se a sessão desaparecer. O UUID da sessão não é autenticação.
 
-Professores são carregados do PostgreSQL e podem ser cadastrados/editados, inclusive com carga horária. A importação aceita apenas `.xlsx`, com as colunas dos exemplos em `data/entrada/`; o endpoint está disponível em `/docs`.
+## SMTP
 
-Documentos PDF/JPG/PNG podem ser processados por OCR ou vinculados manualmente. A confirmação grava professor, competência e status no banco e tenta enviar o e-mail automaticamente. A tela informa separadamente o resultado do vínculo e do envio. Prévias e histórico visual ainda dependem do cache do navegador; não há sincronização completa dos documentos entre dispositivos.
+Compatibilidade Gmail: `DIGEP_EMAIL` e `DIGEP_SENHA_APP` continuam funcionando. Para servidor institucional:
 
-Para enviar e-mails, configure `DIGEP_EMAIL` e `DIGEP_SENHA_APP`. Com `DIGEP_MODO_TESTE=true`, os e-mails são enviados **de verdade**, mas ao remetente configurado. Nenhum e-mail é enviado durante os testes automatizados.
+```env
+SMTP_HOST=smtp.exemplo.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_USER=conta@exemplo.com
+SMTP_PASSWORD=senha_configurada_localmente
+DIGEP_EMAIL=remetente@exemplo.com
+DIGEP_MODO_TESTE=true
+```
 
-O envio é síncrono. Cada lote exige `Idempotency-Key`; repetir a mesma chave e conteúdo recupera o resultado sem reenviar. Leia [o contrato de envio](docs/API-ENVIO.md) para os casos de timeout e envio parcial e [o fluxo de documentos](docs/FLUXO-DOCUMENTOS.md) para persistência e limitações.
+Use `ssl`/465 ou `starttls`/587 conforme o provedor. SMTP_USER/SMTP_PASSWORD vazios usam as credenciais antigas. `DIGEP_MODO_TESTE=true` envia **de verdade** ao remetente; não é uma simulação. Confirmar uma folha recebida tenta enviar automaticamente; gerar um modelo em branco não envia. Senhas ficam apenas no `.env`, fora do versionamento. Reinicie o backend ao alterar configuração.
 
-## Calendário acadêmico e geração de PDFs
-
-- **Calendário:** visualização mensal, seleção de dia, filtros por ano/mês/tipo, cadastro, edição e exclusão confirmada de datas especiais. Dados persistem no PostgreSQL.
-- **Importar Excel:** `.xlsx` de até 15 MB, com colunas `Data` e `Especificação`. Aceita data do Excel ou texto DD/MM/AAAA. O relatório informa novos, atualizados, ignorados e inválidos, com os motivos por linha. Duplicidade usa data + especificação normalizada; reimportar preserva a classificação manual.
-- **Gerar folhas:** escolha competência e de 1 a 100 professores. PDFs incluem cadastro, carga horária, dias, finais de semana e eventos do calendário, com horários/assinaturas em branco. O layout é provisório, identificado como tal; não foi encontrado modelo institucional oficial.
-- **Versões e downloads:** nova versão exige autorização explícita. PDFs ficam em `data/folhas/geradas/`; metadados e cópias dos dados/eventos ficam no PostgreSQL. Histórico remoto, PDF individual e ZIP permitem recuperar documentos sem depender do navegador.
-- A geração não executa OCR ou envio de e-mail e não substitui folhas recebidas. A tela de documentos mostra datas especiais da competência sem modificar os PDFs existentes.
-
-Consulte [Calendário e geração](docs/CALENDARIO-GERACAO.md) para regras completas, exemplos, endpoints e testes manuais; [Alterações do banco](docs/ALTERACOES-BANCO.md) para schema e migração; e [Relatório da implementação](docs/RELATORIO-REQUISITO-3.3.md) para escopo e validação.
-
-## Verificação
+## Testes e documentação
 
 ```bash
 python -m unittest discover -s tests -v
@@ -127,24 +118,17 @@ pnpm lint
 pnpm build
 ```
 
-Os testes reais de banco precisam de `FOLHA_TEST_DSN`, por exemplo `host=localhost dbname=folha_test user=folha_test password=...`. Use um banco de testes: cada caso cria e remove um schema exclusivo. Sem essa variável, esses testes são ignorados explicitamente.
+Para integração/migrações, configure `FOLHA_TEST_DSN` com um banco de testes. A CI instala Tesseract/português antes dos testes, sem baixar modelos durante sua execução. Os testes criam/removem schemas exclusivos; sem a variável, essa parte é explicitamente ignorada. Testes SMTP usam simulações e não enviam mensagens reais. A CI executa Python/PostgreSQL, frontend, TypeScript, lint e build.
 
-O GitHub Actions executa os testes Python com PostgreSQL, testes do frontend, TypeScript, lint e build em pushes e pull requests. O OCR nos testes é simulado ou testa o extrator textual; não avalia a precisão do Tesseract em documentos reais.
+- [Integração do frontend](frontend/INTEGRACAO-FRONTEND.md)
+- [Banco e migrações](docs/ALTERACOES-BANCO.md)
+- [Upload, versões e OCR](docs/FLUXO-DOCUMENTOS.md)
+- [Contrato de envio e histórico](docs/API-ENVIO.md)
+- [Calendário e modelo institucional](docs/CALENDARIO-GERACAO.md)
+- [Relatório desta integração](docs/RELATORIO-INTEGRACAO.md)
 
-Relatórios gerados (`relatorio_erros.xlsx`), caches e credenciais ficam fora do versionamento. Os arquivos de `data/entrada/` foram mantidos como exemplos; não coloque documentos reais de professores nessa pasta versionada.
+## Refinamentos e limites
 
-## Envio automático ao confirmar
+O backend publica os limites em GET /folhas/configuracao. Configure MAX_GENERATION_BATCH=500, MAX_GENERATED_DOWNLOAD_BATCH=500 e MAX_GENERATED_ZIP_BYTES=262144000 no .env. ZIP padrão: 500 arquivos e 250 MiB; geração sequencial tem resultados individuais, sem carregar o lote de PDFs em RAM. A interface não trunca silenciosamente seleções acima do limite. Prazos de geração/ZIP/OCR estão em [Calendário e geração](docs/CALENDARIO-GERACAO.md).
 
-Configure no `.env` da raiz:
-
-```env
-DIGEP_EMAIL=seuemail@gmail.com
-DIGEP_SENHA_APP=sua_senha_de_app
-DIGEP_MODO_TESTE=true
-```
-
-O código usa Gmail SMTP SSL na porta 465. A senha de app depende da verificação em duas etapas e da disponibilidade desse recurso na conta Google. Consulte https://support.google.com/accounts/answer/185833?hl=pt-BR. Reinicie o backend depois de alterar o `.env`.
-
-Ao clicar **Confirmar e enviar e-mail**, o backend salva o vínculo e dispara a mensagem. `true` envia ao próprio remetente; use `false` para enviar ao professor cadastrado. Senhas ausentes não impedem salvar o vínculo: a tela avisa e permite tentar o envio após a configuração.
-
-A mesma confirmação não reenvia automaticamente. Outro arquivo, professor, competência, destinatário efetivo ou mudança de modo de teste cria um novo envio. Falhas SMTP ficam registradas e exigem conferência antes de um reenvio manual pelo botão existente. A tabela `idempotency_request` deve existir; use a migração documentada acima. O envio é síncrono, sem fila.
+Bancos existentes também precisam da **004_refinamentos.sql**. Ela lista jornadas antigas incompatíveis e interrompe sem converter/apagar dados. Corrija manualmente com base nos dados corretos e reaplique. Valores NULL legados são preservados; cadastros novos exigem 20h/40h. [Relatório dos refinamentos](docs/RELATORIO-REFINAMENTOS.md).

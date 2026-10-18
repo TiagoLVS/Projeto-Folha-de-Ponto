@@ -43,47 +43,52 @@ def excluir_data(id_evento):
         return cur.fetchone() is not None
 
 
-def importar_datas(linhas, nome_arquivo, sha256):
+def importar_datas(linhas, nome_arquivo, sha256, cursor=None):
     resumo = dict(total=len(linhas), novos=0, atualizados=0, ignorados=0, invalidos=0, detalhes=[])
-    with repository.conectar() as conn, conn.cursor(row_factory=dict_row) as cur:
-        vistos = set()
-        for linha in linhas:
-            if 'erro' in linha:
-                resumo['invalidos'] += 1
-                resumo['detalhes'].append(dict(linha=linha['linha'], status='INVALIDO', motivo=linha['erro']))
-                continue
-            event = linha['evento']
-            cur.execute('SELECT normalizar_especificacao(%s) AS chave', (event.especificacao,))
-            key = (event.data, cur.fetchone()['chave'])
-            if key in vistos:
-                resumo['ignorados'] += 1
-                resumo['detalhes'].append(dict(linha=linha['linha'], status='IGNORADO', motivo='Duplicado na planilha.'))
-                continue
-            vistos.add(key)
-            cur.execute('''INSERT INTO data_especial(data, especificacao, tipo) VALUES (%s,%s,%s)
-                ON CONFLICT (data, especificacao_normalizada) DO NOTHING RETURNING id_data_especial''',
-                (event.data, event.especificacao, event.tipo.value))
-            created = cur.fetchone()
-            if created:
-                resumo['novos'] += 1
-                status, motivo = 'NOVO', 'Evento cadastrado.'
+    if cursor is None:
+        with repository.conectar() as conn, conn.cursor(row_factory=dict_row) as cur:
+            return importar_datas(linhas, nome_arquivo, sha256, cursor=cur)
+    cur = cursor
+    vistos = set()
+    for linha in linhas:
+        origem={k:linha[k] for k in ('pagina','texto','origem','linha_origem') if k in linha}
+        if 'evento' in linha:origem.update(data=linha['evento'].data.isoformat(),especificacao=linha['evento'].especificacao)
+        if 'erro' in linha:
+            resumo['invalidos'] += 1
+            resumo['detalhes'].append(dict(**origem, linha=linha['linha'], status='INVALIDO', motivo=linha['erro']))
+            continue
+        event = linha['evento']
+        cur.execute('SELECT normalizar_especificacao(%s) AS chave', (event.especificacao,))
+        key = (event.data, cur.fetchone()['chave'])
+        if key in vistos:
+            resumo['ignorados'] += 1
+            resumo['detalhes'].append(dict(**origem, linha=linha['linha'], status='IGNORADO', motivo='Duplicado no arquivo.'))
+            continue
+        vistos.add(key)
+        cur.execute('''INSERT INTO data_especial(data, especificacao, tipo) VALUES (%s,%s,%s)
+            ON CONFLICT (data, especificacao_normalizada) DO NOTHING RETURNING id_data_especial''',
+            (event.data, event.especificacao, event.tipo.value))
+        created = cur.fetchone()
+        if created:
+            resumo['novos'] += 1
+            status, motivo = 'NOVO', 'Evento cadastrado.'
+        else:
+            # Apenas a apresentação do texto pode ser atualizada. A classificação
+            # manual já existente nunca é substituída por uma sugestão da planilha.
+            cur.execute('''UPDATE data_especial SET especificacao=%s
+                WHERE data=%s AND especificacao_normalizada=normalizar_especificacao(%s)
+                AND especificacao IS DISTINCT FROM %s RETURNING id_data_especial''',
+                (event.especificacao, event.data, event.especificacao, event.especificacao))
+            if cur.fetchone():
+                resumo['atualizados'] += 1
+                status, motivo = 'ATUALIZADO', 'Apresentação da especificação atualizada; tipo preservado.'
             else:
-                # Apenas a apresentação do texto pode ser atualizada. A classificação
-                # manual já existente nunca é substituída por uma sugestão da planilha.
-                cur.execute('''UPDATE data_especial SET especificacao=%s
-                    WHERE data=%s AND especificacao_normalizada=normalizar_especificacao(%s)
-                    AND especificacao IS DISTINCT FROM %s RETURNING id_data_especial''',
-                    (event.especificacao, event.data, event.especificacao, event.especificacao))
-                if cur.fetchone():
-                    resumo['atualizados'] += 1
-                    status, motivo = 'ATUALIZADO', 'Apresentação da especificação atualizada; tipo preservado.'
-                else:
-                    resumo['ignorados'] += 1
-                    status, motivo = 'IGNORADO', 'Evento já cadastrado; tipo preservado.'
-            resumo['detalhes'].append(dict(linha=linha['linha'], status=status, motivo=motivo))
-        cur.execute('''INSERT INTO importacao_calendario
-            (nome_arquivo,sha256,total,novos,atualizados,ignorados,invalidos,detalhes)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id_importacao''',
-            (nome_arquivo[:255], sha256, resumo['total'], resumo['novos'], resumo['atualizados'], resumo['ignorados'], resumo['invalidos'], Jsonb(resumo['detalhes'])))
-        resumo['id_importacao'] = cur.fetchone()['id_importacao']
+                resumo['ignorados'] += 1
+                status, motivo = 'IGNORADO', 'Evento já cadastrado; tipo preservado.'
+        resumo['detalhes'].append(dict(**origem, linha=linha['linha'], status=status, motivo=motivo))
+    cur.execute('''INSERT INTO importacao_calendario
+        (nome_arquivo,sha256,total,novos,atualizados,ignorados,invalidos,detalhes)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id_importacao''',
+        (nome_arquivo[:255], sha256, resumo['total'], resumo['novos'], resumo['atualizados'], resumo['ignorados'], resumo['invalidos'], Jsonb(resumo['detalhes'])))
+    resumo['id_importacao'] = cur.fetchone()['id_importacao']
     return resumo

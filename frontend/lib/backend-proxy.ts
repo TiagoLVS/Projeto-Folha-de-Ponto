@@ -1,10 +1,10 @@
-import { NextResponse } from 'next/server';
+import { academicTimeout } from './academic-limits.ts';
 
 /** Preserve authentication, concurrency and idempotency headers without forwarding arbitrary headers. */
 export async function proxyBackend(path: string, request?: Request, binary = false) {
   const method = request?.method ?? 'GET';
   const headers = new Headers();
-  for (const name of ['authorization', 'cookie', 'idempotency-key', 'if-match']) {
+  for (const name of ['authorization', 'cookie', 'idempotency-key', 'if-match', 'x-client-id']) {
     const value = request?.headers.get(name);
     if (value) headers.set(name, value);
   }
@@ -13,7 +13,7 @@ export async function proxyBackend(path: string, request?: Request, binary = fal
   try {
     const response = await fetch(`${process.env.BACKEND_URL ?? 'http://127.0.0.1:8000'}${path}`, {
       method, headers, body: body?.byteLength ? body : undefined, cache: 'no-store',
-      signal: AbortSignal.timeout(65000), redirect: 'manual',
+      signal: AbortSignal.timeout(academicTimeout(path)), redirect: 'manual',
     });
     const outputHeaders = new Headers({ 'Cache-Control': 'no-store' });
     for (const name of ['content-type', 'content-disposition', 'etag', 'retry-after']) {
@@ -23,6 +23,6 @@ export async function proxyBackend(path: string, request?: Request, binary = fal
     if (binary) outputHeaders.set('X-Content-Type-Options', 'nosniff');
     return new Response(response.status === 204 ? null : response.body, { status: response.status, headers: outputHeaders });
   } catch {
-    return NextResponse.json({ detail: 'Não foi possível conectar ao servidor. Tente novamente.' }, { status: 502 });
+    return Response.json({ detail: 'Não foi possível conectar ao servidor. Tente novamente.' }, { status: 502 });
   }
 }

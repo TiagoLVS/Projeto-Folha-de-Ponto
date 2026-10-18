@@ -1,116 +1,60 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { listProfessors, saveProfessor } from '../lib/professor-api.ts';
-import { processDocument, confirmDocument, registerDocument } from '../lib/timesheet-api.ts';
-import { restoreDocuments } from '../lib/document-storage.ts';
-
-const server = { id_servidor: 42, nome: 'Ana', matricula: '12345', email: 'ana@example.com', departamento: 'Ensino', carga_horaria: 40 };
-const professor = { id: '42', name: 'Ana', registration: '12345', email: 'ana@example.com', department: 'Ensino', workload: 40, sheets: {} };
-const sheet = { id: 'local-id', status: 'uploaded', attachment: { url: 'data:application/pdf;base64,JVBERg==', name: 'folha.pdf', type: 'application/pdf', size: 4 }, updatedAt: '2026-09-01' };
-
-test('cadastros vêm do servidor e falhas não são tratadas como lista vazia', async t => {
-  const fetch = t.mock.method(globalThis, 'fetch', async () => Response.json([server]));
-  assert.deepEqual(await listProfessors(), [professor]);
-  assert.equal(fetch.mock.calls[0].arguments[1].cache, 'no-store');
-  fetch.mock.mockImplementation(async () => Response.json({ detail: 'offline' }, { status: 502 }));
-  await assert.rejects(listProfessors(), /carregar/);
+import { listProfessors, saveProfessor, deleteProfessor } from '../lib/professor-api.ts';
+import { listTimesheets, attachRemoteSheets, processDocument, confirmDocument, uploadDocument, deleteDocument } from '../lib/timesheet-api.ts';
+import { setNetworkLock } from '../lib/network-lock.ts';
+const server = { id_servidor: 42, nome: 'Ana', matricula: '0012345', cpf: '00123456789', email: 'ana@example.com', departamento: 'Ensino', carga_horaria: 40 };
+const remote = { id_folha: 77, id_servidor: 42, competencia: '2026-09', status_ocr: 'REVISAR', nome_arquivo: 'Ana-2026-09.pdf', tamanho_arquivo: 120, atualizado_em: '2026-09-01T00:00:00Z', matricula: '0012345' };
+const open = () => setNetworkLock({ locked: false, unavailable: false, checked: true });
+test('cadastros e histórico são reconstruídos remotamente', async t => {
+  open();
+  const mock = t.mock.method(globalThis, 'fetch', async url => Response.json(url === '/api/servers' ? [server] : [remote]));
+  const records = attachRemoteSheets(await listProfessors(), await listTimesheets());
+  assert.equal(records[0].registration, '0012345');
+  assert.equal(records[0].sheets['2026-09'].backendId, 77);
+  assert.equal(records[0].sheets['2026-09'].attachment.url, '/api/timesheets/77/file');
+  mock.mock.mockImplementation(async () => Response.json({ detail: 'Servidor indisponível' }, { status: 503 }));
+  await assert.rejects(listProfessors(), /indisponível/); await assert.rejects(listTimesheets(), /indisponível/);
 });
-
-test('edição usa ID do banco e adota os dados normalizados retornados', async t => {
-  t.mock.method(globalThis, 'fetch', async (url, options) => {
-    assert.equal(url, '/api/servers/42');
-    assert.equal(options.method, 'PUT');
-    assert.equal(JSON.parse(options.body).name, 'Ana atualizada');
-    assert.equal(JSON.parse(options.body).workload, 20);
-    return Response.json({ ...server, nome: 'Ana atualizada', email: 'novo@example.com', carga_horaria: 20 });
+test('edição e exclusão propagam dados e conflitos reais', async t => {
+  open();
+  const mock = t.mock.method(globalThis, 'fetch', async () => Response.json([server]));
+  const professor = (await listProfessors())[0];
+  mock.mock.mockImplementation(async (url, opts) => {
+    assert.equal(url, '/api/servers/42'); assert.equal(opts.method, 'PUT');
+    return Response.json({ ...server, nome: 'Ana atualizada', carga_horaria: 20 });
   });
-  const saved = await saveProfessor({ ...professor, name: 'Ana atualizada', workload: 20, sheets: { '2026-09': sheet } }, false);
-  assert.equal(saved.email, 'novo@example.com');
-  assert.equal(saved.workload, 20);
-  assert.equal(saved.sheets['2026-09'], sheet);
+  assert.equal((await saveProfessor({ ...professor, name: 'Ana atualizada', workload: 20 }, false)).workload, 20);
+  mock.mock.mockImplementation(async () => Response.json({ detail: 'Servidor possui folhas' }, { status: 409 }));
+  await assert.rejects(deleteProfessor('42'), /possui folhas/);
+  mock.mock.mockImplementation(async () => new Response(null, { status: 204 })); await deleteProfessor('42');
 });
-
-test('conflito de cadastro é exibido como erro', async t => {
-  t.mock.method(globalThis, 'fetch', async () => Response.json({ detail: 'Essa matrícula já está cadastrada.' }, { status: 409 }));
-  await assert.rejects(saveProfessor(professor, false), /matrícula/);
-});
-
-for (const status of ['OK', 'REVISAR', 'ERRO']) {
-  test(`OCR ${status} preserva ID para correção`, async t => {
-    t.mock.method(globalThis, 'fetch', async url => url === sheet.attachment.url
-      ? new Response('%PDF')
-      : Response.json({ id_folha: 77, status_ocr: status, mensagem: 'Conferir', matricula: '12345' }));
-    const result = await processDocument(sheet, new AbortController().signal);
-    assert.equal(result.backendId, 77);
-    assert.equal(result.status, status);
-    assert.equal(result.identifiedData.registration, '12345');
+for (const status of ['OK', 'REVISAR', 'ERRO']) test(`OCR por ID conserva resultado ${status}`, async t => {
+  open();
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    assert.equal(url, '/api/timesheets/77/process'); assert.equal(opts.method, 'POST');
+    return Response.json({ ...remote, status_ocr: status });
   });
-}
-
-test('confirmação envia ID real, professor e competência e propaga conflitos', async t => {
-  t.mock.method(globalThis, 'fetch', async (url, options) => {
-    assert.equal(url, '/api/timesheets/77');
-    assert.equal(options.method, 'PATCH');
-    assert.deepEqual(JSON.parse(options.body), { id_servidor: 42, competencia: '2026-09' });
-    return Response.json({ detail: 'Já existe uma folha.' }, { status: 409 });
+  const result = await processDocument({ backendId: 77 }, new AbortController().signal);
+  assert.equal(result.backendId, 77); assert.equal(result.statusOcr, status);
+});
+test('upload exige autorização explícita de substituição e exclusão remota', async t => {
+  open(); t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    if (opts.method === 'DELETE') return new Response(null, { status: 204 });
+    assert.equal(url, '/api/timesheets/upload'); assert.equal(opts.body.get('sobrescrever'), 'true');
+    assert.equal(opts.body.get('id_folha_existente'), '76'); assert.equal(opts.body.get('id_servidor'), '42');
+    return Response.json(remote, { status: 201 });
   });
-  await assert.rejects(confirmDocument(77, '42', '2026-09'), /Já existe/);
+  assert.equal((await uploadDocument(new File(['%PDF-1.7'], 'folha.pdf', { type: 'application/pdf' }), '42', '2026-09', 76)).backendId, 77);
+  await deleteDocument(77);
 });
-
-test('vínculo sem OCR registra o documento antes de confirmar', async t => {
-  t.mock.method(globalThis, 'fetch', async (url, options) => {
-    if (url === sheet.attachment.url) return new Response('%PDF');
-    assert.equal(url, '/api/timesheets/register');
-    assert.equal(options.body.get('arquivo').name, 'folha.pdf');
-    return Response.json({ id_folha: 88 }, { status: 201 });
-  });
-  assert.equal(await registerDocument(sheet), 88);
+for (const status of ['ENVIADO', 'ERRO', 'PROCESSANDO', 'NAO_CONFIGURADO']) test(`confirmação conserva resultado de envio ${status}`, async t => {
+  open(); t.mock.method(globalThis, 'fetch', async () => Response.json({ ...remote, status_ocr: 'OK', confirmado_em: '2026-09-01T01:00:00Z', envio: { status, mensagem: 'Resultado' } }));
+  const result = await confirmDocument(77, '42', '2026-09'); assert.equal(result.email.status, status); assert.ok(result.confirmedAt);
 });
-
-test('cache antigo não sobrescreve cadastro e IDs demo não se misturam aos reais', () => {
-  const legacy = [{ ...professor, name: 'Nome local antigo', sheets: { '2026-09': sheet } }];
-  assert.equal(restoreDocuments([professor], undefined, legacy)[0].name, 'Ana');
-  assert.deepEqual(restoreDocuments([professor], undefined, legacy)[0].sheets['2026-09'], { ...sheet, confirmedAt: undefined });
-  assert.deepEqual(restoreDocuments([{ ...professor, registration: '99999' }], undefined, legacy)[0].sheets, {});
-  assert.deepEqual(restoreDocuments([], undefined, legacy), []);
-});
-
-test('cache de documentos conserva ID após mudança de matrícula no servidor', () => {
-  const cached = { '42': { '2026-09': { ...sheet, backendId: 77, status: 'processing' } } };
-  const restored = restoreDocuments([{ ...professor, registration: '99999' }], cached)[0];
-  assert.equal(restored.registration, '99999');
-  assert.equal(restored.sheets['2026-09'].backendId, 77);
-  assert.equal(restored.sheets['2026-09'].status, 'error');
-});
-
-test('confirmação antiga somente local precisa ser salva no servidor', () => {
-  const legacy = [{ ...professor, sheets: { '2026-09': { ...sheet, confirmedAt: '2026-09-22' } } }];
-  assert.equal(restoreDocuments([professor], undefined, legacy)[0].sheets['2026-09'].confirmedAt, undefined);
-});
-
-test('resposta de sucesso incompleta não confirma vínculo na interface', async t => {
-  t.mock.method(globalThis, 'fetch', async () => Response.json({}));
+test('respostas incompletas e conflitos não confirmam vínculo', async t => {
+  open(); const mock = t.mock.method(globalThis, 'fetch', async () => Response.json({}));
   await assert.rejects(confirmDocument(77, '42', '2026-09'), /não confirmou/);
-});
-
-
-for (const status of ['ENVIADO', 'ERRO', 'PROCESSANDO', 'NAO_CONFIGURADO']) {
-  test(`confirmação preserva vínculo quando envio retorna ${status}`, async t => {
-    t.mock.method(globalThis, 'fetch', async () => Response.json({
-      id_folha: 77, id_servidor: 42, competencia: '2026-09', status_ocr: 'OK',
-      envio: { status, mensagem: 'Resultado do envio' },
-    }));
-    const result = await confirmDocument(77, '42', '2026-09');
-    assert.equal(result.status_ocr, 'OK');
-    assert.equal(result.envio.status, status);
-  });
-}
-
-test('confirmação sem resultado do e-mail não inventa sucesso de envio', async t => {
-  t.mock.method(globalThis, 'fetch', async () => Response.json({
-    id_folha: 77, id_servidor: 42, competencia: '2026-09', status_ocr: 'OK',
-  }));
-  const result = await confirmDocument(77, '42', '2026-09');
-  assert.equal(result.status_ocr, 'OK');
-  assert.equal(result.envio.status, 'ERRO');
+  mock.mock.mockImplementation(async () => Response.json({ detail: 'Já existe folha' }, { status: 409 }));
+  await assert.rejects(confirmDocument(77, '42', '2026-09'), /Já existe/);
 });

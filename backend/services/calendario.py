@@ -83,7 +83,97 @@ def ler_calendario(caminho):
         workbook.close()
 
 
-def importar_calendario(caminho, nome_arquivo):
-    records = ler_calendario(caminho)
-    digest = hashlib.sha256(Path(caminho).read_bytes()).hexdigest()
-    return importar_datas(records, nome_arquivo, digest)
+def importar_calendario(caminho, nome_arquivo, modo='mesclar', ano=None):
+    if modo not in ('mesclar','substituir'):
+        raise ValueError('Modo de importação inválido.')
+    if modo=='substituir' and (type(ano) is not int or not 2000<=ano<=2099):
+        raise ValueError('Informe o ano do calendário a substituir.')
+    if Path(caminho).suffix.lower()=='.pdf':
+        from backend.services.calendario_pdf import ler_calendario_pdf
+        records=ler_calendario_pdf(caminho)
+        return preparar_previa(caminho,nome_arquivo,records,ano if modo=='substituir' else None)
+    records=ler_calendario(caminho)
+    if modo=='substituir':
+        return preparar_previa(caminho,nome_arquivo,records,ano)
+    digest=hashlib.sha256(Path(caminho).read_bytes()).hexdigest()
+    return importar_datas(records,nome_arquivo,digest)
+
+
+def estado_ano(cur,ano):
+    import json
+    cur.execute("""SELECT jsonb_build_array(id_data_especial,data,especificacao,tipo,atualizado_em) AS valor
+        FROM data_especial WHERE data>=make_date(%s,1,1) AND data<make_date(%s+1,1,1)
+        ORDER BY id_data_especial""",(ano,ano))
+    rows=[r['valor'] for r in cur.fetchall()]
+    return rows,hashlib.sha256(json.dumps(rows,ensure_ascii=False).encode()).hexdigest()
+
+
+def preparar_previa(caminho,nome_arquivo,records,ano=None):
+    """Prévia compartilhada: PDF normal ou substituição anual por Excel/PDF."""
+    from uuid import uuid4
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+    from backend.database import repository
+    if ano is not None:
+        checked=[]
+        for row in records:
+            if 'evento' in row and row['evento'].data.year!=ano:
+                checked.append({**{k:v for k,v in row.items() if k!='evento'},'erro':f'Data {row["evento"].data:%d/%m/%Y} fora do ano {ano}. Revise o arquivo.'})
+            else:checked.append(row)
+        records=checked
+    token=uuid4()
+    serialized=[{**r,'evento':r['evento'].model_dump(mode='json')} if 'evento' in r else r for r in records]
+    digest=hashlib.sha256(Path(caminho).read_bytes()).hexdigest()
+    existentes=0
+    with repository.conectar() as conn,conn.cursor(row_factory=dict_row) as cur:
+        stored=serialized
+        if ano is not None:
+            anteriores,assinatura=estado_ano(cur,ano)
+            existentes=len(anteriores)
+            stored={'modo':'substituir','ano':ano,'estado_anterior':assinatura,'registros':serialized}
+        cur.execute("INSERT INTO importacao_calendario_preview(token,nome_arquivo,sha256,registros,expira_em) VALUES(%s,%s,%s,%s,clock_timestamp()+interval '15 minutes') RETURNING expira_em",(token,nome_arquivo[:255],digest,Jsonb(stored)))
+        expires=cur.fetchone()['expira_em']
+    invalidos=sum('erro' in r for r in records)
+    validos=sum('evento' in r for r in records)
+    bloqueio='Corrija as linhas inválidas antes de substituir o calendário.' if invalidos else 'O arquivo precisa conter pelo menos uma data válida.' if not validos else ''
+    return dict(status='PREVIA',token=str(token),expira_em=expires,total=len(records),novos=0,atualizados=0,ignorados=0,
+                invalidos=invalidos,validos=validos,modo='substituir' if ano is not None else 'mesclar',ano=ano,
+                existentes_a_remover=existentes,pode_confirmar=not bloqueio if ano is not None else bool(validos),
+                motivo_bloqueio=bloqueio if ano is not None else '',
+                detalhes=[{k:v for k,v in r.items() if k!='evento'} | dict(status='INVALIDO' if 'erro' in r else 'REVISAR',motivo=r.get('erro','Confira a data e a especificação antes de confirmar.'),
+                    data=r['evento'].data.isoformat() if 'evento' in r else None,especificacao=r['evento'].especificacao if 'evento' in r else None) for r in records])
+
+
+def confirmar_pdf(token):
+    """Confirma token de PDF ou substituição anual, preservando prévias antigas."""
+    from fastapi import HTTPException
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+    from backend.database import repository
+    with repository.conectar() as conn,conn.cursor(row_factory=dict_row) as cur:
+        cur.execute('SELECT *,expira_em>clock_timestamp() AS valido FROM importacao_calendario_preview WHERE token=%s FOR UPDATE',(token,))
+        row=cur.fetchone()
+        if not row:raise HTTPException(404,'Prévia não encontrada.')
+        if row['resultado'] is not None:return row['resultado']
+        if not row['valido']:raise HTTPException(410,'Prévia expirada. Importe o arquivo novamente.')
+        stored=row['registros']
+        substituir=isinstance(stored,dict) and stored.get('modo')=='substituir'
+        raw=stored['registros'] if substituir else stored
+        records=[{**r,'evento':DataEspecialPayload.model_validate(r['evento'])} if 'evento' in r else r for r in raw]
+        if substituir:
+            ano=stored['ano']
+            if not records or any('evento' not in r or r['evento'].data.year!=ano for r in records):
+                raise HTTPException(422,'Substituição exige arquivo válido, sem linhas inválidas e com datas somente do ano escolhido.')
+            cur.execute('LOCK TABLE data_especial IN SHARE ROW EXCLUSIVE MODE')
+            anteriores,assinatura=estado_ano(cur,ano)
+            if assinatura!=stored['estado_anterior']:
+                raise HTTPException(409,'O calendário mudou desde a prévia. Importe o arquivo novamente para conferir a substituição.')
+            cur.execute('DELETE FROM data_especial WHERE data>=make_date(%s,1,1) AND data<make_date(%s+1,1,1)',(ano,ano))
+        result=importar_datas(records,row['nome_arquivo'],row['sha256'],cursor=cur)
+        if substituir:
+            result.update(modo='substituir',ano=ano,removidos=len(anteriores))
+            # Auditoria guarda as datas antigas; os PDFs/snapshots existentes não são regenerados.
+            result['detalhes'][0]['substituicao']={'ano':ano,'eventos_anteriores':anteriores}
+            cur.execute('UPDATE importacao_calendario SET detalhes=%s WHERE id_importacao=%s',(Jsonb(result['detalhes']),result['id_importacao']))
+        cur.execute('UPDATE importacao_calendario_preview SET resultado=%s,confirmado_em=clock_timestamp() WHERE token=%s',(Jsonb(result),token))
+        return result

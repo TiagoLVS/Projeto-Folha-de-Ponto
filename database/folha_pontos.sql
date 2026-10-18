@@ -37,7 +37,7 @@ CREATE TABLE servidor (
     CONSTRAINT ck_servidor_carga_horaria
         CHECK (
             carga_horaria IS NULL
-            OR carga_horaria > 0
+            OR carga_horaria IN (20,40)
         )
 );
 
@@ -97,6 +97,13 @@ CREATE TABLE folha_ponto (
         NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     data_processamento_ocr TIMESTAMP WITH TIME ZONE,
+    ativo BOOLEAN NOT NULL DEFAULT TRUE,
+    versao INTEGER NOT NULL DEFAULT 1 CHECK (versao > 0),
+    tamanho_arquivo BIGINT CHECK (tamanho_arquivo IS NULL OR tamanho_arquivo >= 0),
+    sha256 VARCHAR(64),
+    atualizado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    confirmado_em TIMESTAMPTZ,
+    resultado_paginas JSONB NOT NULL DEFAULT '[]'::jsonb,
 
     CONSTRAINT pk_folha_ponto
         PRIMARY KEY (id_folha),
@@ -110,9 +117,6 @@ CREATE TABLE folha_ponto (
         FOREIGN KEY (id_competencia)
         REFERENCES competencia(id_competencia)
         ON DELETE RESTRICT,
-
-    CONSTRAINT uq_folha_servidor_competencia
-        UNIQUE (id_servidor, id_competencia),
 
     CONSTRAINT ck_folha_status_ocr
         CHECK (
@@ -129,43 +133,6 @@ CREATE TABLE folha_ponto (
 -- 4. ENVIO DE E-MAIL
 -- =====================================================
 
-CREATE TABLE envio (
-    id_envio BIGINT GENERATED ALWAYS AS IDENTITY,
-
-    id_folha BIGINT NOT NULL,
-
-    email_destino VARCHAR(255) NOT NULL,
-
-    -- PENDENTE = ainda não enviado
-    -- ENVIADO  = enviado corretamente
-    -- ERRO     = tentativa falhou
-    status_envio VARCHAR(10)
-        NOT NULL DEFAULT 'PENDENTE',
-
-    data_registro TIMESTAMP WITH TIME ZONE
-        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    data_envio TIMESTAMP WITH TIME ZONE,
-
-    mensagem_erro TEXT,
-
-    CONSTRAINT pk_envio
-        PRIMARY KEY (id_envio),
-
-    CONSTRAINT fk_envio_folha
-        FOREIGN KEY (id_folha)
-        REFERENCES folha_ponto(id_folha)
-        ON DELETE RESTRICT,
-
-    CONSTRAINT ck_envio_status
-        CHECK (
-            status_envio IN (
-                'PENDENTE',
-                'ENVIADO',
-                'ERRO'
-            )
-        )
-);
 
 
 -- =====================================================
@@ -219,11 +186,9 @@ CREATE INDEX idx_folha_competencia
 CREATE INDEX idx_folha_status_ocr
     ON folha_ponto(status_ocr);
 
-CREATE INDEX idx_envio_folha
-    ON envio(id_folha);
 
-CREATE INDEX idx_envio_status
-    ON envio(status_envio);
+
+
 
 -- REQUISITO 3.3 — CALENDÁRIO E MODELOS GERADOS
 CREATE FUNCTION normalizar_especificacao(text) RETURNS text
@@ -272,7 +237,7 @@ CREATE TABLE folha_gerada (
     versao INTEGER NOT NULL CHECK (versao > 0),
     origem VARCHAR(10) NOT NULL DEFAULT 'GERADA' CHECK (origem = 'GERADA'),
     situacao VARCHAR(25) NOT NULL DEFAULT 'MODELO_EM_BRANCO' CHECK (situacao = 'MODELO_EM_BRANCO'),
-    modelo VARCHAR(50) NOT NULL DEFAULT 'provisorio-v1',
+    modelo VARCHAR(50) NOT NULL DEFAULT 'institucional-v1',
     caminho_arquivo TEXT NOT NULL UNIQUE,
     nome_arquivo VARCHAR(255) NOT NULL,
     tamanho_bytes BIGINT NOT NULL CHECK (tamanho_bytes > 0),
@@ -285,6 +250,57 @@ CREATE INDEX idx_folha_gerada_competencia ON folha_gerada(id_competencia, id_ser
 CREATE INDEX idx_folha_gerada_referencia ON folha_gerada(id_folha_referencia);
 
 -- Snapshot preservado mesmo após editar/excluir o evento do calendário.
+CREATE TABLE envio (
+    id_envio BIGINT GENERATED ALWAYS AS IDENTITY,
+
+    id_folha BIGINT,
+
+    email_destino VARCHAR(255) NOT NULL,
+
+    -- PENDENTE = ainda não enviado
+    -- ENVIADO  = enviado corretamente
+    -- ERRO     = tentativa falhou
+    status_envio VARCHAR(10)
+        NOT NULL DEFAULT 'PENDENTE',
+
+    data_registro TIMESTAMP WITH TIME ZONE
+        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    data_envio TIMESTAMP WITH TIME ZONE,
+
+    mensagem_erro TEXT,
+    id_documento BIGINT,
+
+    CONSTRAINT fk_envio_documento FOREIGN KEY(id_documento)
+        REFERENCES folha_gerada(id_documento) ON DELETE RESTRICT,
+    CONSTRAINT ck_envio_origem CHECK(num_nonnulls(id_folha,id_documento)=1),
+
+    CONSTRAINT pk_envio
+        PRIMARY KEY (id_envio),
+
+    CONSTRAINT fk_envio_folha
+        FOREIGN KEY (id_folha)
+        REFERENCES folha_ponto(id_folha)
+        ON DELETE RESTRICT,
+
+    CONSTRAINT ck_envio_status
+        CHECK (
+            status_envio IN (
+                'PENDENTE',
+                'ENVIADO',
+                'ERRO'
+            )
+        )
+);
+
+CREATE INDEX idx_envio_folha
+    ON envio(id_folha);
+CREATE INDEX idx_envio_status
+    ON envio(status_envio);
+CREATE INDEX idx_envio_documento_recente ON envio(id_documento,id_envio DESC);
+CREATE UNIQUE INDEX uq_envio_documento_pendente ON envio(id_documento,lower(email_destino))
+    WHERE id_documento IS NOT NULL AND status_envio='PENDENTE';
+
 CREATE TABLE folha_gerada_evento (
     id_documento BIGINT NOT NULL REFERENCES folha_gerada(id_documento) ON DELETE CASCADE,
     ordem INTEGER NOT NULL CHECK (ordem >= 0),
@@ -301,3 +317,41 @@ CREATE TABLE schema_migration (
     aplicada_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 INSERT INTO schema_migration(versao) VALUES ('002_calendario');
+
+-- INTEGRAÇÃO 003: histórico remoto, revisões, importação e lease compartilhado.
+CREATE UNIQUE INDEX uq_folha_ativa_servidor_competencia
+    ON folha_ponto(id_servidor,id_competencia) WHERE ativo;
+CREATE INDEX idx_servidor_cpf_busca ON servidor(cpf);
+CREATE INDEX idx_envio_folha_recente ON envio(id_folha,id_envio DESC);
+CREATE TABLE importacao_servidor_preview (
+    token UUID PRIMARY KEY,
+    registros JSONB NOT NULL,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expira_em TIMESTAMPTZ NOT NULL,
+    confirmado_em TIMESTAMPTZ,
+    resultado JSONB
+);
+CREATE INDEX idx_importacao_servidor_expiracao ON importacao_servidor_preview(expira_em);
+CREATE TABLE sistema_lock (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    owner_token UUID,
+    acquired_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ
+);
+INSERT INTO sistema_lock(id) VALUES(1);
+INSERT INTO schema_migration(versao) VALUES('003_integracao');
+
+CREATE TABLE importacao_calendario_preview (
+    token UUID PRIMARY KEY,
+    nome_arquivo VARCHAR(255) NOT NULL,
+    sha256 CHAR(64) NOT NULL,
+    registros JSONB NOT NULL,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expira_em TIMESTAMPTZ NOT NULL,
+    confirmado_em TIMESTAMPTZ,
+    resultado JSONB
+);
+CREATE INDEX idx_calendario_preview_expiracao ON importacao_calendario_preview(expira_em);
+INSERT INTO schema_migration(versao) VALUES('004_refinamentos');
+
+INSERT INTO schema_migration(versao) VALUES('005_envio_modelos');

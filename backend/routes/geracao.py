@@ -1,13 +1,19 @@
+from backend.config import configuracao_publica
 from typing import Annotated
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Header, HTTPException, Path, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
 from backend.database.geracao import listar_geradas, buscar_gerada, ConflitoGeracao
-from backend.models.calendario import GeracaoPayload, GeracaoLotePayload, DownloadLotePayload
+from backend.models.calendario import GeracaoPayload, GeracaoLotePayload, DownloadLotePayload, EnvioGeradasPayload
 from backend.services.geracao import gerar_folha, gerar_lote, apresentar, arquivo_documento, criar_zip
 
 router = APIRouter(prefix='/folhas', tags=['Geração de modelos de folha'])
 Identificador = Annotated[int, Path(gt=0, le=9223372036854775807)]
+
+
+@router.get('/configuracao')
+def configuracao():
+    return configuracao_publica()
 
 
 @router.post('/gerar', status_code=201)
@@ -46,6 +52,22 @@ def baixar_lote(payload: DownloadLotePayload):
         finally:
             file.close()
     return StreamingResponse(chunks(), media_type='application/zip', headers={'Content-Disposition': 'attachment; filename="folhas-geradas.zip"'}, background=BackgroundTask(file.close))
+
+
+@router.get('/geradas/para-envio')
+def previa_envio(competencia: str = Query(...,pattern=r'^20\d{2}-(0[1-9]|1[0-2])$')):
+    from backend.services.envio_geradas import previa
+    return previa(competencia)
+
+
+@router.post('/geradas/enviar-lote')
+def enviar_modelos(payload:EnvioGeradasPayload,chave:str=Header(...,alias='Idempotency-Key',min_length=1,max_length=255)):
+    from backend.services.envio_geradas import enviar_lote
+    from backend.services.idempotencia import executar
+    ids=sorted(payload.ids_documentos)
+    dados={'ids_documentos':ids,'competencia':payload.competencia}
+    if payload.reenviar:dados['reenviar']=True
+    return executar(chave,'modelos-email',dados,lambda:enviar_lote(ids,payload.competencia,payload.reenviar))
 
 
 @router.get('/geradas/{id_documento}')

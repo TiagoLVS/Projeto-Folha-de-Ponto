@@ -4,3 +4,5 @@ export async function GET(request: Request) {
   return proxyBackend(`/sistema/lock` + new URL(request.url).search, request);
 }
 
+
+export async function DELETE(request: Request) { return proxyBackend('/sistema/lock', request); }

@@ -1,4 +1,5 @@
 'use client';
+import { newId } from '@/lib/client-session';
 import { useEffect, useRef, useState } from 'react';
 import { Upload, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -36,8 +37,13 @@ export function TimesheetUpload({ professors, defaultProfessorId = '', month, on
     setError('');
     try {
       if (incoming.length + files.length > 20) throw new Error('Selecione no máximo 20 PDFs por lote.');
-      for (const file of incoming) await validatePdf(file);
-      if (alive.current) setFiles(rows => [...rows, ...incoming.map(file => ({ id: crypto.randomUUID(), key: crypto.randomUUID(), file, professorId: defaultProfessorId, month, state: 'aguardando' as const }))]);
+      const additions: PendingFile[] = [];
+      for (const file of incoming) {
+        let problem = '';
+        try { await validatePdf(file); } catch (error) { problem = error instanceof Error ? error.message : 'PDF inválido.'; }
+        additions.push({ id: newId(), key: newId(), file, professorId: defaultProfessorId, month, state: problem ? 'erro' : 'aguardando', error: problem || undefined });
+      }
+      if (alive.current) setFiles(rows => [...rows, ...additions]);
     } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : 'Arquivos inválidos.'); }
     finally { chooseGuard.current = false; }
   }
@@ -51,16 +57,17 @@ export function TimesheetUpload({ professors, defaultProfessorId = '', month, on
     if (guard.current || chooseGuard.current || blocked) return;
     const pending = files.filter(row => row.state !== 'enviada');
     if (!pending.length) return;
-    const pairs = pending.map(row => `${row.professorId}:${row.month}`);
-    if (pending.some(row => !row.professorId || !validMonth(row.month)) || new Set(pairs).size !== pairs.length) {
-      setError('Informe servidor e competência para cada PDF. Cada combinação deve ser única no lote.'); return;
-    }
     guard.current = true; setBusy(true); setError('');
     let sent = 0;
+    const pairs = new Set<string>();
     try {
       for (const row of pending) {
         if (!alive.current) break;
         try {
+          const pair = `${row.professorId}:${row.month}`;
+          if (!row.professorId || !validMonth(row.month)) throw new Error('Informe servidor e competência para este PDF.');
+          if (pairs.has(pair)) throw new Error('Vínculo repetido neste lote. Envie separadamente para revisar a substituição.');
+          pairs.add(pair);
           const records = await listTimesheets(row.professorId);
           let existing = records.find(record => record.competencia === row.month)?.id_folha;
           const name = professors.find(p => p.id === row.professorId)?.name ?? row.professorId;
@@ -98,11 +105,11 @@ export function TimesheetUpload({ professors, defaultProfessorId = '', month, on
     </div>
     {!!files.length && <><Table><TableHeader><TableRow><TableHead>PDF</TableHead><TableHead>Servidor</TableHead><TableHead>Competência</TableHead><TableHead>Situação</TableHead><TableHead>Ações</TableHead></TableRow></TableHeader><TableBody>{files.map(row => <TableRow key={row.id}>
       <TableCell className="max-w-52 whitespace-normal break-words">{row.file.name}<small className="block text-muted-foreground">{(row.file.size / 1024 / 1024).toFixed(2)} MB</small></TableCell>
-      <TableCell><NativeSelect aria-label={`Servidor de ${row.file.name}`} value={row.professorId} disabled={busy || blocked || row.state === 'enviada'} onChange={e => patch(row.id, { professorId: e.target.value, state: 'aguardando', key: crypto.randomUUID(), error: undefined })}><NativeSelectOption value="">Selecione</NativeSelectOption>{professors.map(p => <NativeSelectOption key={p.id} value={p.id}>{p.name} · {p.registration}</NativeSelectOption>)}</NativeSelect></TableCell>
-      <TableCell><Input type="month" min="2000-01" max="2099-12" value={row.month} aria-label={`Competência de ${row.file.name}`} disabled={busy || blocked || row.state === 'enviada'} onChange={e => patch(row.id, { month: e.target.value, state: 'aguardando', key: crypto.randomUUID(), error: undefined })} /></TableCell>
-      <TableCell className="max-w-60 whitespace-normal" role="status">{row.state}{row.error && <p className="text-destructive">{row.error}</p>}</TableCell>
+      <TableCell><NativeSelect aria-label={`Servidor de ${row.file.name}`} value={row.professorId} disabled={busy || blocked || row.state === 'enviada'} onChange={e => patch(row.id, { professorId: e.target.value, state: 'aguardando', key: newId(), error: undefined })}><NativeSelectOption value="">Selecione</NativeSelectOption>{professors.map(p => <NativeSelectOption key={p.id} value={p.id}>{p.name} · {p.registration}</NativeSelectOption>)}</NativeSelect></TableCell>
+      <TableCell><Input type="month" min="2000-01" max="2099-12" value={row.month} aria-label={`Competência de ${row.file.name}`} disabled={busy || blocked || row.state === 'enviada'} onChange={e => patch(row.id, { month: e.target.value, state: 'aguardando', key: newId(), error: undefined })} /></TableCell>
+      <TableCell className="max-w-60 whitespace-normal" ><span role="status">{row.state}</span>{row.error && <p className="text-destructive">{row.error}</p>}</TableCell>
       <TableCell><Button variant="ghost" size="icon" disabled={busy} aria-label={`Retirar ${row.file.name} do lote`} onClick={() => setFiles(rows => rows.filter(r => r.id !== row.id))}><Trash2 size={16} /></Button></TableCell>
     </TableRow>)}</TableBody></Table><Button disabled={busy || blocked || files.every(row => row.state === 'enviada')} onClick={() => void submit()} aria-busy={busy}>{busy ? 'Enviando PDFs…' : 'Enviar PDFs'}</Button></>}
-    <ConfirmationDialog open={!!conflict} title="Sobrescrever folha existente?" description={conflict ? `Já existe uma folha para ${conflict.name} em ${monthLabel(conflict.month)}. Sobrescrever substitui o original no servidor e exige uma nova validação.` : ''} confirmLabel="Sobrescrever" disabled={blocked} onConfirm={() => answer(true)} onCancel={() => answer(false)} />
+    <ConfirmationDialog open={!!conflict} title="Sobrescrever folha existente?" description={conflict ? `Já existe uma folha para ${conflict.name} em ${monthLabel(conflict.month)}. O servidor preservará o original com nome OLD e exigirá uma nova validação para o PDF recebido.` : ''} confirmLabel="Sobrescrever" disabled={blocked} onConfirm={() => answer(true)} onCancel={() => answer(false)} />
   </div>;
 }

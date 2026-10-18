@@ -9,3 +9,5 @@ Pillow
 pandas
 openpyxl
 httpx2
+
+xlrd==2.0.2

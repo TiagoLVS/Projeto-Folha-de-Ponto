@@ -77,3 +77,6 @@ frontend/tsconfig.tsbuildinfo
 /relatorio_erros.xlsx
 /frontend/.wrangler/
 /frontend/.vinext/
+
+# Controle de inicialização local
+.iniciar.lock

@@ -106,3 +106,19 @@ class TestEnviarEmail(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+class TestSMTPConfiguravel(unittest.TestCase):
+    def test_starttls_com_usuario_e_senha_proprios(self):
+        from unittest.mock import patch
+        from backend.services.enviar_email import enviar_email
+        with patch.dict('os.environ',SMTP_HOST='smtp.example.com',SMTP_PORT='587',SMTP_SECURITY='starttls',SMTP_USER='conta@example.com'), patch('backend.services.enviar_email.smtplib.SMTP') as factory:
+            status,_,_=enviar_email(object(),'remetente@example.com','senha-teste')
+            self.assertEqual(status,'ENVIADO');factory.assert_called_once_with('smtp.example.com',587,timeout=30)
+            factory.return_value.__enter__.return_value.starttls.assert_called_once()
+            factory.return_value.__enter__.return_value.login.assert_called_once_with('conta@example.com','senha-teste')
+
+    def test_ssl_preserva_padrao_gmail(self):
+        from unittest.mock import patch
+        from backend.services.enviar_email import enviar_email
+        with patch.dict('os.environ',SMTP_HOST='smtp.gmail.com',SMTP_PORT='465',SMTP_SECURITY='ssl',SMTP_USER=''), patch('backend.services.enviar_email.smtplib.SMTP_SSL') as factory:
+            self.assertEqual(enviar_email(object(),'digep@example.com','teste')[0],'ENVIADO')
+            factory.assert_called_once_with('smtp.gmail.com',465,timeout=30)

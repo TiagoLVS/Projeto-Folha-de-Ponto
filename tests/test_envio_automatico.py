@@ -1,7 +1,6 @@
 import unittest
 from unittest.mock import patch
 from backend.services.enviar_email import enviar_apos_confirmacao
-from backend.api import corrigir_folha, ConfirmacaoFolhaPayload
 from fastapi import HTTPException
 
 
@@ -10,13 +9,14 @@ class TestEnvioAutomatico(unittest.TestCase):
         self.folha = {
             'id_folha': 1, 'id_servidor': 2, 'id_competencia': 3,
             'caminho_arquivo': '/tmp/folha.pdf', 'email': 'ana@example.com',
-            'nome': 'Ana', 'status_ocr': 'OK',
+            'nome': 'Ana', 'status_ocr': 'OK', 'confirmado_em': '2026-09-01',
         }
         def patched(name, **kwargs):
             context = patch(name, **kwargs)
             result = context.start()
             self.addCleanup(context.stop)
             return result
+        patched('backend.services.enviar_email.Path.is_file', return_value=True)
         self.config = patched('backend.services.enviar_email.carregar_configuracao_email', return_value=('digep@example.com', 'test-only', False))
         self.reserve = patched('backend.database.repository.registrar_requisicao_idempotente', return_value={'created': True, 'status': 'PROCESSANDO'})
         self.finish = patched('backend.database.repository.finalizar_requisicao_idempotente')
@@ -70,16 +70,12 @@ class TestEnvioAutomatico(unittest.TestCase):
         self.assertNotEqual(self.reserve.call_args.args[0], original)
         self.assertEqual(self.reserve.call_args.args[2]['destinatario'], 'digep@example.com')
 
-    def test_erro_no_envio_nao_desfaz_confirmacao_e_nao_expoe_snapshot(self):
-        saved = {'id_folha': 1, 'id_servidor': 2, 'id_competencia': 3, 'competencia': '2026-09', 'status_ocr': 'OK', '_folha_envio': self.folha}
-        with patch('backend.api.confirmar_folha', return_value=saved), patch('backend.api.enviar_apos_confirmacao', side_effect=RuntimeError('banco indisponível')):
-            result = corrigir_folha(1, ConfirmacaoFolhaPayload(id_servidor=2, competencia='2026-09'))
-        self.assertEqual(result['status_ocr'], 'OK')
-        self.assertEqual(result['envio']['status'], 'ERRO')
-        self.assertNotIn('_folha_envio', result)
+    def test_folha_nao_confirmada_nao_envia(self):
+        with self.assertRaises(ValueError):
+            enviar_apos_confirmacao({**self.folha,'confirmado_em':None})
+        self.send.assert_not_called()
 
-    def test_vinculo_invalido_nao_envia(self):
-        with patch('backend.api.confirmar_folha', side_effect=LookupError('Professor não encontrado.')), patch('backend.api.enviar_apos_confirmacao') as send:
-            with self.assertRaises(HTTPException):
-                corrigir_folha(1, ConfirmacaoFolhaPayload(id_servidor=2, competencia='2026-09'))
-            send.assert_not_called()
+    def test_folha_revisar_nao_envia(self):
+        with self.assertRaises(ValueError):
+            enviar_apos_confirmacao({**self.folha,'status_ocr':'REVISAR'})
+        self.send.assert_not_called()

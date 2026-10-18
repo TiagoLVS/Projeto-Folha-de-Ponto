@@ -1,106 +1,83 @@
-# Calendário acadêmico e geração de folhas
+# Calendário acadêmico e modelos institucionais
 
-## Usar a interface
+## Um contrato de calendário
 
-Após atualizar o banco conforme [ALTERACOES-BANCO.md](ALTERACOES-BANCO.md), execute `bash iniciar.sh` na raiz do repositório e abra o endereço informado pelo frontend (normalmente http://localhost:5173).
+A interface usa `academic-api.ts` → `/api/academic` → `/datas-especiais`, com CRUD, filtros, importação e auditoria no PostgreSQL. Não há backend paralelo `/calendario`.
 
-**Calendário:** navegue com as setas ou selecione mês e ano. Clique em um dia para ler todos os seus eventos. O filtro de tipo vale para o calendário e a tabela; “Listar o ano inteiro” amplia a tabela. “Adicionar data”, “Editar” e “Excluir” persistem no PostgreSQL; excluir exige confirmação. Tipos aparecem por nome e cor: feriado, recesso, ponto facultativo e outro.
+Excel `.xlsx` continua com colunas **Data** e **Especificação**, datas Excel ou DD/MM/AAAA. Mantém validação por linha, prevenção de duplicidade, novos/atualizados/ignorados/inválidos e auditoria. Limites: MAX_UPLOAD_BYTES (15 MB padrão), 5.000 linhas, 64 MB expandido. `.xls` é suportado apenas na importação de professores.
 
-**Gerar folhas:** selecione competência e um ou mais professores reais do cadastro (máximo 100). Um professor usa a geração individual; vários usam lote. O resultado informa documentos gerados, falhas por professor e download ZIP. O histórico abaixo é carregado do servidor e permanece disponível após limpar o navegador. É possível baixar cada PDF ou selecionar até 100 documentos do histórico para ZIP.
+A identidade é data + especificação normalizada; vários eventos distintos podem compartilhar uma data. Reimportação idêntica é ignorada e alteração somente de apresentação preserva a classificação manual. Tipos: FERIADO, RECESSO, PONTO_FACULTATIVO, OUTRO; `sugerir_tipo` não infere feriado apenas pelo dia.
 
-Uma geração anterior exige marcar “Autorizar nova versão”. Isso produz outro documento, conservando versões antigas. Se uma requisição for interrompida, atualize o histórico antes de autorizar uma nova versão; uma nova tentativa sem essa autorização não duplica a primeira versão já confirmada.
+## PDF digital e escaneado
 
-As telas de consulta de folha e geração mostram os eventos da competência. Essa consulta mostra o **calendário atual**; cada PDF conserva os eventos do momento da sua criação. Datas especiais não representam presença, ausência nem horas trabalhadas.
+O mesmo seletor aceita **.xlsx ou .pdf**. PDF exige MIME application/pdf, assinatura e conteúdo válidos, sem senha, no máximo 20 páginas e MAX_UPLOAD_BYTES. A extensão não permite tratar PDF como Excel.
 
-## Importação XLSX
+Cada página tenta primeiro extração nativa PyMuPDF. Texto com uma data explícita e conteúdo suficiente é interpretado sem OCR. Páginas vazias/insuficientes usam renderização limitada e Tesseract, compartilhando TESSERACT_CMD, OCR_LANG (por padrão) e preparação de imagem de `backend/ocr/reader.py`. O OCR tem timeout de 30 segundos por página. PDF misto pode usar texto numa página e OCR em outra.
 
-Na aba ativa da planilha, a primeira linha precisa conter uma única coluna **Data** e uma única coluna **Especificação**. A ordem é livre, espaços externos/maiúsculas no cabeçalho são normalizados e colunas extras são ignoradas. Tipo não é obrigatório nem importado.
+Formatos reconhecidos:
 
-| Data | Especificação |
-|---|---|
-| 01/01/2027 | Confraternização Universal |
-| 15/02/2027 | Recesso acadêmico |
-| 16/02/2027 | Ponto facultativo |
-| 21/04/2027 | Tiradentes |
-
-São aceitas células de data reais do Excel, sem horário, e texto estrito DD/MM/AAAA. Datas impossíveis, textos ambíguos, números sem formato de data, fórmulas e especificações vazias/não textuais são inválidos. A especificação normalizada aceita até 300 caracteres.
-
-Limites: `.xlsx`, 15 MB por padrão (mesmo `MAX_UPLOAD_BYTES` dos uploads existentes), 5.000 linhas de dados e 64 MB de conteúdo expandido. `.xls` não é aceito. Arquivo ilegível, cabeçalho incorreto ou limites excedidos impedem a importação inteira. Linhas com erros isolados são registradas como inválidas; as demais podem ser confirmadas.
-
-Classificação conservadora: início explícito “Feriado”, “Recesso” e “Ponto facultativo” sugere o tipo correspondente; os demais ficam OUTRO. Por exemplo, Tiradentes fica OUTRO até edição manual. Reimportar nunca substitui o tipo já escolhido.
-
-A identidade é data + especificação normalizada conforme [regras do banco](ALTERACOES-BANCO.md). Mesmo dia com outra especificação é outro evento. Mesma identidade e mesma apresentação textual: **ignorado**. Mesma identidade com capitalização diferente: **atualizado**, somente o texto de apresentação. Repetições da mesma identidade dentro do arquivo são ignoradas; a primeira linha válida prevalece. Mudar de fato o nome ou o dia não é uma atualização confiável: cria outro evento. Para corrigir esse caso use Editar, evitando registros antigos desnecessários.
-
-O relatório retorna total, novos, atualizados, ignorados, inválidos e linha/status/motivo. Linhas totalmente vazias não entram no total. Os contadores refletem a transação confirmada, incluindo auditoria em `importacao_calendario`. Falha no banco desfaz todos os registros daquela importação. Reimportações idênticas são permitidas e ficam auditadas, sem duplicar eventos.
-
-## API
-
-Rotas documentadas automaticamente pelo FastAPI em `/docs`. Os erros usam `detail` (string, ou lista de validação Pydantic). As rotas do frontend `/api/academic/...` encaminham a mesma estrutura e os parâmetros ao `BACKEND_URL`, com suporte a multipart, 204, PDF e ZIP.
-
-| Método e rota | Entrada / resultado |
-|---|---|
-| GET `/datas-especiais` | Filtros opcionais `ano`, `mes` (exige ano), `tipo`, `inicio`, `fim` ISO. Combina filtros por interseção, limites inclusivos. Lista ordenada. |
-| GET `/datas-especiais/{id_evento}` | Evento ou 404 |
-| POST `/datas-especiais` | JSON data ISO, especificacao, tipo; retorna 201 |
-| PUT `/datas-especiais/{id_evento}` | Mesmos campos; retorna 200 |
-| DELETE `/datas-especiais/{id_evento}` | 204 ou 404 |
-| POST `/datas-especiais/importar` | Multipart campo `arquivo`; relatório 200 |
-| POST `/folhas/gerar` | JSON id_servidor, competencia AAAA-MM, nova_versao opcional false; documento 201 |
-| POST `/folhas/gerar-lote` | JSON ids_servidores, competencia, nova_versao; relatório 200, inclusive sucesso parcial |
-| GET `/folhas/geradas` | Filtros opcionais competencia e id_servidor; histórico com versões |
-| GET `/folhas/geradas/{id_documento}` | Metadados e cópia dos eventos usados; 404 se ausente |
-| GET `/folhas/geradas/{id_documento}/download` | PDF como anexo; 404 se registro/arquivo indisponível |
-| POST `/folhas/geradas/download-lote` | JSON ids_documentos; ZIP, até 100 documentos e 100 MB de PDFs |
-
-Duplicidade de evento ou tentativa de gerar novamente sem autorização: **409**. Dados inválidos: **422**. Limite de upload/ZIP: **413**; extensão de planilha inválida segue o **400** do uploader existente. Professor/documento inexistente: **404**. Um lote de geração mantém sucessos já confirmados e informa cada falha; não anuncia uma fila inexistente. Geração e importação executam de forma síncrona.
-
-Exemplos:
-
-```json
-{"data":"2027-04-21","especificacao":"Tiradentes","tipo":"FERIADO"}
+```text
+01/01/2027 - Feriado - Ano novo
+15/02/2027
+Recesso acadêmico
+21/04/2027 Tiradentes
+20/12/2027 a 31/12/2027 - Recesso
 ```
 
-```json
-{"id_servidor":42,"competencia":"2027-02","nova_versao":false}
+Intervalos explícitos e válidos são expandidos dia a dia, incluindo início/fim, até 366 dias. O ano pode vir de um cabeçalho mensal explícito, como JANEIRO/2026. Sem um ano escrito na data ou nesse cabeçalho, a entrada continua inválida. Não são inferidos feriado ou datas ausentes. Datas impossíveis, descrições insuficientes, datas extras ambíguas e linhas desconhecidas são inválidas/revisão. Cabeçalhos simples reconhecidos são ignorados; layouts complexos podem exigir ajuste manual.
+
+**PDF sempre exige conferência antes de gravar eventos**, inclusive digital. POST `/datas-especiais/importar` retorna status PREVIA, token de 15 minutos, válidos/inválidos e detalhes com página, linha original, texto, origem TEXTO/OCR e datas/descrições propostas. A interface apresenta a prévia e o botão **Confirmar datas do PDF**. Nenhuma data é gravada nessa etapa. POST `/datas-especiais/importar/confirm` recebe somente token e Idempotency-Key; confirma registros válidos e registra a auditoria na mesma transação. Repetições não duplicam eventos/auditoria. Descartar não importa eventos. Tokens expirados exigem nova leitura.
+
+Excel mantém o comportamento de importação imediata e relatório final. PDF sem entradas confiáveis deixa a confirmação indisponível; erro de leitura não aparece como importação bem-sucedida. A correção de linhas inválidas é feita no documento e por nova importação, ou no cadastro manual de datas.
+
+### Calendário acadêmico da UnDF
+
+O formato mensal do Calendário Acadêmico 2026 da UnDF é suportado. O leitor usa o ano dos cabeçalhos MÊS/AAAA, interpreta DD/MM, intervalos como `05/01 a 03/02` e `02 a 31/03`, e listas como `14, 16 e 18/02` ou `02/04 e 04/04`. Ignora números/dias da grade, nomes dos dias da semana e totais letivos. Descrições com ano/semestre (2026.1 e 2026.2) são preservadas. Entradas ambíguas continuam exigindo revisão. A classificação depende do texto, sem inventar que uma data é feriado por conhecimento externo.
+
+O PDF original foi validado por leitura: 316 registros após expandir intervalos/listas, correspondendo a 279 eventos por data/especificação, com 37 repetições ignoradas ao confirmar. A referência original não foi modificada; sua extração textual pública é uma fixture de regressão. A prévia e a confirmação permanecem no fluxo existente; nenhum evento foi inserido no banco do usuário durante essa verificação.
+
+## Geração e ZIP
+
+Use **Gerar folhas** na tela principal. Selecione competência e até **500 professores por lote**, por padrão, com autorização explícita para novas versões. O relatório separa total, gerados, não gerados, documentos e motivo por falha. O lote continua sequencial: só o PDF atual é renderizado na memória; o relatório acumula metadados. Uma falha não cancela os demais.
+
+Por padrão, a lista mostra somente servidores **sem PDF gerado na competência selecionada**. Após gerar, os sucessos saem da lista; falhas continuam disponíveis. Reabrir a tela ou recarregar mantém o filtro usando o histórico remoto. Em outra competência, a lista é recalculada. Os PDFs permanecem no histórico e podem ser baixados. A opção explícita Gerar nova versão de folhas existentes permite selecionar novamente quando necessário.
+
+`Selecionar todos` considera apenas os servidores exibidos e recusa uma lista acima do máximo, informa a quantidade e mantém a seleção anterior. Não recorta silenciosamente. A seleção individual impede o próximo item acima do limite com mensagem. Download também limita a seleção e informa seu máximo.
+
+Configuração no `.env` do backend, com reinicialização:
+
+```env
+MAX_GENERATION_BATCH=500
+MAX_GENERATED_DOWNLOAD_BATCH=500
+MAX_GENERATED_ZIP_BYTES=262144000
 ```
 
-```json
-{"ids_servidores":[42,43],"competencia":"2027-02","nova_versao":true}
-```
+O backend é a fonte dos limites: GET `/folhas/configuracao` publica os máximos e MAX_UPLOAD_BYTES para a interface, via proxy existente. Geração/download aceitam configuração entre 1 e 5.000 itens, permanecendo limitados. ZIP aceita até **250 MB (250 MiB)** por padrão tanto na soma dos PDFs como no arquivo final; o teto de configuração é 1 GiB. Diminuir o máximo de ZIP não altera o limite da geração; selecione sublotes para baixar.
 
-A rota `/datas-especiais/resumo` não foi adicionada: era opcional, e a interface utiliza a listagem filtrada e o relatório da importação, sem duplicar consultas equivalentes. Nenhuma rota antiga mudou seu contrato; CORS passou a aceitar DELETE.
+Os oito exemplos sintéticos comuns medidos (28/29/30/31 dias, 20h/40h, sem anexos extensos) ficaram entre **60.392 e 65.925 bytes**, média 62.649 bytes. 500 desses exemplos no maior tamanho somam 32.962.500 bytes (aproximadamente 31,4 MiB); 250 MiB oferece margem sem tornar o download ilimitado. PDFs com anexos especiais podem ser maiores.
 
-## Modelo PDF, persistência e versões
+ZIP usa `SpooledTemporaryFile`: até 8 MiB de buffer, depois disco, adicionando um arquivo por vez via ZipFile.write. A resposta é transmitida em blocos de 64 KiB e fecha o temporário. Mantém restrição à pasta permitida, arquivos existentes, IDs positivos distintos e tamanho máximo. O lote não carrega todos os PDFs em RAM. Reserve espaço temporário em disco.
 
-Os PDFs existentes em `data/entrada/` são documentos demonstrativos, identificados como teste. Não foi identificado modelo institucional oficial. O novo layout é explicitamente **MODELO PROVISÓRIO DA APLICAÇÃO** (`provisorio-v1`). Utiliza PyMuPDF, já presente nas dependências.
+Timeouts compartilhados por cliente/proxy em `frontend/lib/academic-limits.ts`: comuns **65 s**, geração **900 s (15 min)**, ZIP **180 s (3 min)**, leitura de calendário **660 s (11 min)**. Mantêm prazos finitos e admitem até 20 páginas × 30 s de OCR. Infraestruturas com proxy externo precisam permitir esses prazos; não existe fila de geração. Um timeout não cancela necessariamente trabalho já iniciado no backend: consulte o histórico antes de autorizar outra versão.
 
-Inclui nome, matrícula, departamento, carga horária quando cadastrada, competência, versão, todos os dias e dias da semana, finais de semana, tipos e descrições dos eventos. Campos de entrada, saída, observações gerais e assinaturas ficam em branco. A tabela quebra páginas quando necessário, repete cabeçalho e comporta múltiplos eventos e textos longos.
+Rotas preservadas: POST `/folhas/gerar`, POST `/folhas/gerar-lote`, GET `/folhas/geradas`, GET `/folhas/geradas/{id}`, GET `/folhas/geradas/{id}/download`, POST `/folhas/geradas/download-lote`.
 
-Para ajustar o layout, edite `backend/services/modelo_folha.py`: `TITULO`, `ALTURA_MINIMA_LINHA`, colunas e `renderizar_pdf`. Ao adotar outro modelo, altere `MODELO_ID`; o identificador é gravado em cada novo registro. Essa configuração é feita no código, não por editor visual. Regerar com autorização explícita aplica o novo modelo sem alterar PDFs anteriores.
+## Modelo institucional
 
-Arquivos ficam em `data/folhas/geradas/AAAA-MM/Folha_ID_AAAA-MM_vN_UUID.pdf`, com criação exclusiva. IDs numéricos e UUID evitam colisões/caminhos derivados de nomes de usuários. O PostgreSQL armazena caminho, nome, hash, tamanho, versão, professor, competência e cópias dos dados/eventos.
+`institucional-v1` segue o DOCX de referência. Cabeçalho com logo, Universidade do Distrito Federal Prof Jorge Amaury Maia Nunes — UnDF, CNPJ 43.061.297/0001-08, Registro de Frequência e Referência MÊS/AAAA. Identificação: UA, matrícula, nome, cargo, padrão, função, carga horária e exercício. Dados sem fonte confiável ficam vazios; departamento não vira UA. CPF e acumulação não são acrescentados ao modelo oficial.
 
-Falha na transação remove o arquivo recém-criado. Uma interrupção abrupta do processo entre gravação do arquivo e commit ainda pode deixar um arquivo órfão: ele não aparece no histórico nem substitui documentos existentes. Backups precisam incluir banco e diretório de arquivos; ainda não há rotina de reconciliação automática de órfãos.
+Carga horária aparece como **20h ou 40h**, conforme cadastro. Legados NULL ficam em branco. Dois turnos têm assinatura/entrada/saída, todos os dias, SÁBADO/DOMINGO e `--`, eventos e observações, datas e assinaturas/carimbos. Meses comuns de 28/29/30/31 dias cabem em A4; eventos extensos preservam texto em anexo referenciado. Versões e snapshots são mantidos; gerar não confirma frequência nem envia e-mail.
 
-O download usa o ID do banco e confina o caminho ao diretório de geradas, inclusive após resolver links simbólicos. Não aceita um caminho enviado pelo usuário. O ZIP utiliza nomes de arquivo simples. Não foi acrescentada autenticação: os novos endpoints seguem o mesmo contexto local/administrativo da API existente.
+## Substituir um calendário por outro
 
-## Integração com OCR e e-mail
+Na importação, selecione o ano e marque **Substituir calendário de AAAA** antes de escolher o novo Excel/PDF. O modo padrão continua adicionando/mesclando eventos. No modo de substituição, ambos os formatos passam primeiro por prévia, com ano, quantidade existente e datas propostas. O botão de substituição abre uma confirmação explícita de exclusão.
 
-Gerar não executa OCR, não marca folha como conferida e não envia e-mail. `folha_gerada` é separada de `folha_ponto`, e o envio continua consultando somente folhas recebidas. Para usar um modelo preenchido, baixe, preencha e envie o documento resultante pelo fluxo já existente. Ao confirmar esse documento recebido, o comportamento de envio automático existente continua valendo.
+A confirmação apaga somente as datas do ano escolhido e importa as novas na mesma transação. Outros anos, recebidas e PDFs gerados não são apagados. Os PDFs e snapshots antigos permanecem como foram gerados; para refletir o calendário novo em um PDF já existente, use **Gerar nova versão de folhas existentes**.
 
-A geração não modifica originais recebidos. Alterar/excluir eventos conserva os PDFs e os dados históricos; novas versões usam o calendário vigente. O histórico remoto foi adicionado para **modelos gerados**. As prévias das folhas recebidas continuam com a limitação anterior de cache IndexedDB.
+Arquivos vazios, linhas inválidas e datas fora do ano escolhido bloqueiam a substituição. Se o calendário desse ano mudar depois da prévia, a confirmação retorna 409 e exige nova importação/conferência. Se a gravação falhar, a exclusão é revertida. Repetir um token confirmado retorna o resultado anterior e não exclui eventos adicionados posteriormente.
 
-## Verificação
+Contrato existente: POST `/datas-especiais/importar` recebe multipart `arquivo`, `modo=substituir` e `ano=AAAA`; a confirmação permanece POST `/datas-especiais/importar/confirm` com somente token e Idempotency-Key. Sem modo, a mesclagem anterior é preservada. A prévia de substituição usa um envelope no JSONB já existente, compatível com prévias PDF antigas; não exige migração nova. O resultado informa `removidos`, e a auditoria guarda o estado anterior do ano no primeiro detalhe da importação.
 
-```bash
-python -m unittest discover -s tests -v
-cd frontend
-pnpm test
-pnpm exec tsc --noEmit --incremental false
-pnpm lint
-pnpm build
-```
+## Enviar modelos aos servidores
 
-Configure `FOLHA_TEST_DSN` para um PostgreSQL **descartável** a fim de executar os testes de integração/migração. Sem a variável, esses testes ficam explicitamente ignorados. A CI existente já roda a descoberta de testes Python com PostgreSQL 18, testes frontend, TypeScript, lint e build.
-
-Teste manual sugerido: importe a tabela acima, classifique Tiradentes, reimporte e confira os ignorados/tipo preservado; gere um PDF para um professor, altere o calendário, autorize nova versão e compare os dois downloads; gere um lote e baixe o ZIP. Use somente dados de teste. Gerar os modelos não dispara o envio automático.
+Depois de gerar, clique **Enviar todas por e-mail** na mesma tela, confira os destinatários e confirme o lote. Pode também marcar documentos no histórico e enviar as selecionadas. O envio usa a versão mais recente de cada servidor no mês, exibe progresso e registra resultados em E-mails. Modelos em branco não exigem validação OCR. Gerar continua sem disparar mensagens automaticamente. Documentação e modo de teste em [API-ENVIO.md](API-ENVIO.md); requer migração 005.

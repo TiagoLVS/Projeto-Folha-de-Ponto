@@ -1,12 +1,20 @@
-from typing import Annotated
-from fastapi import APIRouter, File, HTTPException, Path, Query, Response, UploadFile
+from uuid import UUID
+from pydantic import BaseModel, ConfigDict
+from backend.services.idempotencia import executar
+from typing import Annotated, Literal
+from fastapi import APIRouter, File, Form, Header, HTTPException, Path, Query, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from psycopg.errors import UniqueViolation
 from backend.database import calendario as db
 from backend.models.calendario import DataEspecialPayload, FiltrosCalendario
-from backend.services.calendario import importar_calendario
+from backend.services.calendario import importar_calendario, confirmar_pdf
 
 Identificador = Annotated[int, Path(gt=0, le=9223372036854775807)]
+
+
+class ConfirmarPDF(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    token:UUID
 
 
 def criar_router(salvar_planilha):
@@ -17,14 +25,18 @@ def criar_router(salvar_planilha):
         return db.listar_datas(filtros)
 
     @router.post('/importar')
-    async def importar(arquivo: UploadFile = File(...)):
+    async def importar(arquivo: UploadFile = File(...), modo: Literal['mesclar','substituir'] = Form('mesclar'), ano: int | None = Form(None,ge=2000,le=2099)):
         path = await salvar_planilha(arquivo)
         try:
-            return await run_in_threadpool(importar_calendario, path, arquivo.filename or 'calendario.xlsx')
+            return await run_in_threadpool(importar_calendario, path, arquivo.filename or 'calendario.xlsx', modo, ano)
         except ValueError as error:
             raise HTTPException(422, detail=str(error)) from error
         finally:
             path.unlink(missing_ok=True)
+
+    @router.post('/importar/confirm')
+    def confirmar(payload:ConfirmarPDF,chave:str=Header(...,alias='Idempotency-Key',min_length=1,max_length=255)):
+        return executar(chave,'calendario-pdf',{'token':str(payload.token)},lambda:confirmar_pdf(payload.token))
 
     @router.get('/{id_evento}')
     def consultar(id_evento: Identificador):

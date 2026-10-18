@@ -10,6 +10,8 @@ from backend.database.repository import payload_hash_for
 class TestIdempotenciaEnviarLote(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
+        context=patch('backend.services.lease.iniciar_mutacao',return_value=None);context.start();self.addCleanup(context.stop)
+        context=patch('backend.api.validar_folha_envio');context.start();self.addCleanup(context.stop)
 
     @patch("backend.api.listar_folhas_para_envio")
     @patch("backend.api.enviar_folha_do_banco")

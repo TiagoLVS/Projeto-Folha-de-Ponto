@@ -1,3 +1,4 @@
+from backend.config import MAX_GENERATION_BATCH, MAX_GENERATED_DOWNLOAD_BATCH
 import calendar
 import re
 import unicodedata
@@ -72,7 +73,7 @@ class GeracaoPayload(BaseModel):
 
 class GeracaoLotePayload(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    ids_servidores: list[int] = Field(min_length=1, max_length=100)
+    ids_servidores: list[int] = Field(min_length=1, max_length=MAX_GENERATION_BATCH)
     competencia: str = Field(pattern=r'^20\d{2}-(0[1-9]|1[0-2])$')
     nova_versao: bool = False
 
@@ -88,5 +89,13 @@ class GeracaoLotePayload(BaseModel):
 
 class DownloadLotePayload(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    ids_documentos: list[int] = Field(min_length=1, max_length=100)
+    ids_documentos: list[int] = Field(min_length=1, max_length=MAX_GENERATED_DOWNLOAD_BATCH)
+    validar_ids = field_validator('ids_documentos', mode='before')(GeracaoLotePayload.validar_ids.__func__)
+
+
+class EnvioGeradasPayload(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    ids_documentos: list[int] = Field(min_length=1,max_length=MAX_GENERATION_BATCH)
+    reenviar: bool = Field(False, strict=True)
+    competencia: str = Field(pattern=r'^20\d{2}-(0[1-9]|1[0-2])$')
     validar_ids = field_validator('ids_documentos', mode='before')(GeracaoLotePayload.validar_ids.__func__)

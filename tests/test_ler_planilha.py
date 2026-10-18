@@ -134,7 +134,7 @@ class TestLerPlanilha(unittest.TestCase):
 
             self.assertEqual(len(resultado["validos"]), 0)
             self.assertIn(
-                "Carga Horária deve ser numérica e maior que zero",
+                "Carga Horária deve ser 20, 20h, 40 ou 40h",
                 resultado["invalidos"][0]["erros"]
             )
 

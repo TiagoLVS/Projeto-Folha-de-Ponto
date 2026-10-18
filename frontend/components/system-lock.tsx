@@ -3,7 +3,9 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { LockKeyhole, AlertCircle } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { apiRequest, ApiError } from '@/lib/api-client';
+import { sessionHeaders } from '@/lib/client-session';
+import { refreshSystemLease } from '@/lib/system-lease';
+import { ApiError } from '@/lib/api-client';
 import { getNetworkLock, getServerNetworkLock, setNetworkLock, subscribeNetworkLock } from '@/lib/network-lock';
 export function useSystemLock() {
   const status = useSyncExternalStore(subscribeNetworkLock, getNetworkLock, getServerNetworkLock);
@@ -20,7 +22,7 @@ export function SystemLock() {
       if (inFlight || !active) return;
       inFlight = true;
       try {
-        const data = await apiRequest<{ locked: boolean }>('/api/system/lock', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]) });
+        const data = await refreshSystemLease(AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]));
         if (typeof data.locked !== 'boolean') throw new Error('Estado inválido');
         if (active) setNetworkLock({ locked: data.locked, unavailable: false, checked: true });
       } catch (error) {
@@ -31,9 +33,11 @@ export function SystemLock() {
       }
     }
     function focus() { clearTimeout(timer); if (!document.hidden) void check(); }
+    function release() { void fetch('/api/system/lock', { method: 'DELETE', headers: sessionHeaders(), keepalive: true }).catch(() => {}); }
     void check();
+    window.addEventListener('pagehide', release);
     document.addEventListener('visibilitychange', focus);
-    return () => { active = false; clearTimeout(timer); controller.abort(); document.removeEventListener('visibilitychange', focus); };
+    return () => { active = false; clearTimeout(timer); controller.abort(); document.removeEventListener('visibilitychange', focus); window.removeEventListener('pagehide', release); };
   }, []);
   if (!status.locked && !status.unavailable) return null;
   return <Alert className="sticky top-0 z-[60] rounded-none border-border bg-[var(--glass)] text-foreground shadow-[var(--glass-shadow)] backdrop-blur-xl">

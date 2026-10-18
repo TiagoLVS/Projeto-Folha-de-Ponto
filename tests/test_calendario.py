@@ -38,7 +38,7 @@ class TestCalendario(unittest.TestCase):
         for data in ('2027-02-29', '21/04/2027', 1, '2027-04-21T00:00:00'):
             with self.assertRaises(ValidationError):
                 DataEspecialPayload(data=data, especificacao='Evento', tipo='OUTRO')
-        for ids in ([], [1, 1], [True], ['1'], [0], list(range(1, 102))):
+        for ids in ([], [1, 1], [True], ['1'], [0], list(range(1, 502))):
             for model, key in ((GeracaoLotePayload, 'ids_servidores'), (DownloadLotePayload, 'ids_documentos')):
                 with self.assertRaises(ValidationError):
                     model(**{key: ids, **({'competencia': '2027-02'} if model == GeracaoLotePayload else {})})
@@ -78,8 +78,9 @@ class TestCalendario(unittest.TestCase):
         pdf = renderizar_pdf(professor, '2028-02', events, 2)
         with pymupdf.open(stream=pdf, filetype='pdf') as doc:
             text = ''.join(page.get_text() for page in doc)
-        for value in ['Ana Silva', '12345', 'Ensino', '40 horas', '29/02/2028', 'Recesso acadêmico', 'Evento adicional', 'Fim de semana', 'Entrada', 'Saída', 'Assinatura do professor', 'MODELO PROVISÓRIO']:
-            self.assertIn(value, text)
+        for value in ['Ana Silva', '12345', '40h', 'FEVEREIRO/2028', '29', 'Recesso acadêmico', 'Evento adicional', 'SÁBADO', 'ENTRADA', 'SAÍDA', 'CHEFIA IMEDIATA', 'REGISTRO DE FREQUÊNCIA']:
+            # Quebras de linha são esperadas dentro das células da tabela.
+            self.assertIn(value, ' '.join(text.split()))
         self.assertNotIn('30/02/2028', text)
         self.assertNotIn('08:00', text)
         self.assertNotIn('17:00', text)
@@ -88,12 +89,26 @@ class TestCalendario(unittest.TestCase):
         events = [dict(data=date(2027, 1, 1), especificacao=('Evento longo ' * 20) + str(i), tipo='OUTRO') for i in range(30)]
         pdf = renderizar_pdf(dict(nome='Professor ' * 25, matricula='12345', departamento=None, carga_horaria=None), '2027-01', events, 1)
         with pymupdf.open(stream=pdf, filetype='pdf') as doc:
-            self.assertGreater(len(doc), 2)
+            self.assertGreater(len(doc), 1)
             text = ''.join(page.get_text() for page in doc)
-            self.assertIn('31/01/2027', text)
-            self.assertIn('Não informada', text)
+            self.assertIn('31', text)
+            self.assertIn('CARGA HORÁRIA:', text)
             for page in doc:
                 for block in page.get_text('blocks'):
                     self.assertGreaterEqual(block[0], 0)
                     self.assertLessEqual(block[2], page.rect.width)
                     self.assertLessEqual(block[3], page.rect.height)
+
+    def test_modelo_institucional_28_29_30_31_dias_em_uma_pagina(self):
+        for month,last in [('2027-02',28),('2028-02',29),('2027-04',30),('2027-01',31)]:
+            with self.subTest(month=month):
+                pdf=renderizar_pdf(dict(nome='Ana Silva',matricula='0012345',cpf='12345678901',departamento='Não deve virar UA',carga_horaria=40),month,[],1)
+                with pymupdf.open(stream=pdf,filetype='pdf') as doc:
+                    self.assertEqual(len(doc),1)
+                    text=doc[0].get_text()
+                    for word in ['43.061.297/0001-08','REGISTRO DE FREQUÊNCIA','UA:','MATRÍCULA:','CARGO:','PADRÃO:','FUNÇÃO:','EXERCÍCIO:','SÁBADO','DOMINGO',str(last),'institucional-v1']:
+                        self.assertIn(word,text)
+                    self.assertNotIn('12345678901',text)
+                    self.assertNotIn('Não deve virar UA',text)
+                    for word in doc[0].get_text('words'):
+                        self.assertLessEqual(word[2],595);self.assertLessEqual(word[3],842)

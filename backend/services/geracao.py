@@ -1,3 +1,5 @@
+from backend.config import MAX_GENERATED_ZIP_BYTES
+from backend.models.calendario import DownloadLotePayload
 import hashlib
 import logging
 from pathlib import Path
@@ -10,9 +12,15 @@ from backend.database import repository
 from backend.database.geracao import preparar_geracao, salvar_gerada, buscar_gerada, ConflitoGeracao
 from backend.models.calendario import GeracaoPayload
 from backend.services.modelo_folha import renderizar_pdf, MODELO_ID
+from backend.services.folhas_recebidas import sanitizar_nome
 
 PASTA_GERADAS = Path(__file__).resolve().parents[2] / 'data' / 'folhas' / 'geradas'
 logger = logging.getLogger(__name__)
+
+
+def nome_pdf_gerado(professor, competencia):
+    nome = sanitizar_nome(professor['nome'])
+    return f'{nome}-{competencia}.pdf'
 
 
 def apresentar(documento):
@@ -28,8 +36,10 @@ def gerar_folha(payload):
             content = renderizar_pdf(professor, payload.competencia, eventos, versao)
             folder = PASTA_GERADAS / payload.competencia
             folder.mkdir(parents=True, exist_ok=True)
-            # IDs numéricos + UUID: nenhuma matrícula livre vira um caminho.
-            path = folder / f'Folha_{professor["id_servidor"]}_{payload.competencia}_v{versao}_{uuid4().hex}.pdf'
+            # A pasta única preserva versões e homônimos sem sufixos no PDF.
+            folder = folder / uuid4().hex
+            folder.mkdir()
+            path = folder / nome_pdf_gerado(professor, payload.competencia)
             with path.open('xb') as file:
                 created = True
                 file.write(content)
@@ -59,6 +69,10 @@ def arquivo_documento(id_documento):
     document = buscar_gerada(id_documento)
     if not document:
         raise LookupError('Documento gerado não encontrado.')
+    return validar_arquivo_documento(document)
+
+
+def validar_arquivo_documento(document):
     path = Path(document['caminho_arquivo']).resolve()
     if not path.is_relative_to(PASTA_GERADAS.resolve()) or path.suffix.lower() != '.pdf' or not path.is_file():
         raise LookupError('Arquivo não disponível no armazenamento de documentos gerados.')
@@ -66,14 +80,19 @@ def arquivo_documento(id_documento):
 
 
 def criar_zip(ids):
+    ids = DownloadLotePayload(ids_documentos=ids).ids_documentos
     files = [arquivo_documento(id_documento) for id_documento in ids]
-    if sum(path.stat().st_size for path, _ in files) > 100 * 1024 * 1024:
-        raise ValueError('Selecione menos documentos: o ZIP aceita até 100 MB de PDFs.')
+    if sum(path.stat().st_size for path, _ in files) > MAX_GENERATED_ZIP_BYTES:
+        raise ValueError(f'Selecione menos documentos: o ZIP aceita até {MAX_GENERATED_ZIP_BYTES // (1024 * 1024)} MB de PDFs.')
     result = SpooledTemporaryFile(max_size=8 * 1024 * 1024)
     try:
         with ZipFile(result, 'w', compression=ZIP_DEFLATED) as archive:
-            for path, name in files:
-                archive.write(path, arcname=Path(name).name)
+            names = [Path(name.replace('\\', '/')).name for _, name in files]
+            for index, ((path, _), name) in enumerate(zip(files, names), 1):
+                # Homônimos e versões selecionadas juntos ficam em pastas separadas.
+                archive.write(path, arcname=f'documento_{index}/{name}' if names.count(name) > 1 else name)
+        if result.tell() > MAX_GENERATED_ZIP_BYTES:
+            raise ValueError('ZIP final excede o limite configurado. Selecione menos documentos.')
         result.seek(0)
         return result
     except Exception:
