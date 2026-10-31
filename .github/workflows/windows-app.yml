@@ -24,6 +24,9 @@ jobs:
       - name: Montar aplicativo
         shell: pwsh
         run: npm --prefix windows-app run build
+      - name: Validar frontend no staging
+        shell: pwsh
+        run: node windows-app/scripts/validate-frontend.cjs windows-app/staging/frontend win32 x64
       - name: Testar rede e configuração
         shell: pwsh
         run: npm --prefix windows-app test
@@ -31,6 +34,11 @@ jobs:
         shell: pwsh
         run: |
           $env:ELECTRON_RUN_AS_NODE='1'
+          $validationPath = (Resolve-Path '.\windows-app\scripts\validate-frontend.cjs').Path
+          $frontendPath = (Resolve-Path '.\windows-app\release\PontoDocente-win32-x64\resources\frontend').Path
+          $arguments = '"' + $validationPath + '" "' + $frontendPath + '" win32 x64'
+          $validation = Start-Process -FilePath '.\windows-app\release\PontoDocente-win32-x64\PontoDocente.exe' -ArgumentList $arguments -NoNewWindow -Wait -PassThru
+          if ($validation.ExitCode -ne 0) { exit $validation.ExitCode }
           $scriptPath = (Resolve-Path '.\windows-app\scripts\smoke.cjs').Path
           $process = Start-Process -FilePath '.\windows-app\release\PontoDocente-win32-x64\PontoDocente.exe' -ArgumentList ('"' + $scriptPath + '"') -NoNewWindow -Wait -PassThru
           exit $process.ExitCode

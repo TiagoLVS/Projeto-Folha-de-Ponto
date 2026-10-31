@@ -12,7 +12,9 @@ npm run build
 npm test
 ```
 
-`PYTHON` pode apontar para um Python de desenvolvimento com pip. O script usa o ambiente `.venv` do projeto, se existir. O build baixa wheels Windows x64/CPython 3.13; não executa binários Windows no host. O módulo principal `build.py` usa `pnpm build` e o frontend standalone de produção. A instalação do pacote extraído não executa pip/npm nem acessa sites de download.
+A montagem final deve ser feita em **Windows x64** (incluindo o runner `windows-latest`), para executar a validação dos binários nativos da plataforma antes de publicar o pacote. Os testes de cópia e o frontend continuam podendo ser verificados no ambiente de desenvolvimento.
+
+`PYTHON` pode apontar para um Python de desenvolvimento com pip. O script usa o ambiente `.venv` do projeto, se existir. O build baixa wheels Windows x64/CPython 3.13 e verifica o runtime do frontend com as bibliotecas nativas Windows. O módulo principal `build.py` usa `pnpm build` e o frontend standalone de produção. A instalação do pacote extraído não executa pip/npm nem acessa sites de download.
 
 Runtimes fixados por URL e SHA-256 em `runtime-sha256.json`. Esses hashes registram os artefatos obtidos por HTTPS, não substituem uma assinatura do fornecedor. Atualizações dos runtimes exigem revisar URLs/hashes e homologar novamente. Electron é obtido pelo Packager, com verificação do mecanismo de download do Electron. Os wheels ficam registrados com seus hashes no pacote.
 
@@ -44,3 +46,17 @@ A senha do banco privado é gerada aleatoriamente e protegida com safeStorage/DP
 A validação feita no host de montagem não substitui esses testes Windows. Não foi usado Wine nem executado um binário Windows aqui.
 
 O workflow manual `windows-app.yml` monta o pacote em Windows e executa `scripts/smoke.cjs` com dados temporários, verificando cadastro, geração de PDF, persistência, HTTPS e reinicialização. O workflow não foi disparado nesta sessão. A interface gráfica, DPAPI e OCR real permanecem na homologação manual.
+
+## Cópia do standalone e validação
+
+`build.py` chama `copy-standalone.cjs` em vez de usar `shutil.copytree` sobre a árvore do pnpm. O helper e `complete-frontend.cjs` usam a mesma política de cópia (`frontend-files.cjs`): `fs.cpSync` recursivo com `dereference: true`, preservando o conteúdo real dos links/junctions. Uma inspeção dos ancestrais reais detecta ciclos e links quebrados antes da cópia; um mesmo pacote usado por ramos diferentes não é omitido. A verificação final rejeita links/junctions residuais. `.env*` (incluindo variantes de caixa), `.git`, `.secrets` e arquivos de credenciais não são copiados. Um alias para um segredo também provoca falha explícita.
+
+A complementação materializa dependências declaradas e mantém versões conflitantes aninhadas nos respectivos contextos de resolução, sem forçar uma versão global única. Pacotes nativos `@img/sharp-*` são localizados pelo manifesto mesmo quando o `exports` impede resolver `package.json` pela API pública.
+
+`validate-frontend.cjs` roda em subprocesso a partir do staging, sem `NODE_PATH` nem opções Node externas. Confere `server.js`, ausência de links e arquivos privados, resolução e carregamento de `next`, `react`, `react-dom` e `react-dom/server`; verifica a árvore de dependências obrigatórias, helpers dinâmicos e se React/ReactDOM usam a mesma cópia de React. Toda resolução precisa ficar dentro do pacote, sem fallback para o `node_modules` da máquina de build. Dependência ausente causa erro com o nome e código de saída diferente de zero.
+
+### Sharp e arquivos nativos
+
+Não se removem mais arquivos `.node`. A aplicação usa `unoptimized` nos componentes de imagem atuais, mas `next.config.ts` **não desativa globalmente** a otimização. Portanto, o pacote conserva `sharp`, a dependência nativa da plataforma e libvips; a validação executa uma transformação PNG real e confere que o binário carregado pertence ao staging. O workflow repete essa validação nos arquivos empacotados usando o Node incluído no Electron. O smoke Windows também solicita `/_next/image` e exige resposta de imagem válida. Não foi alterado o comportamento normal do frontend.
+
+Os testes de cópia usam junctions de diretório (sem exigir privilégios administrativos no Windows), verificam ciclos, links quebrados, exclusão de segredos, preservação de binários, dependências repetidas, versões distintas e rejeição de resolução externa. O build mantém a geração do ZIP e SHA-256 após todas as validações; erros de cópia/etapa são apresentados de forma resumida e continuam fazendo o workflow falhar.

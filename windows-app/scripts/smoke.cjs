@@ -6,13 +6,16 @@ const resources=path.resolve(process.argv[2]||path.join(__dirname,'../release/Po
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'ponto-windows-smoke-'));let host;
 const headers={'X-Client-Id':'8f3a19d7-046b-4510-9ddf-eb85407ae621','X-Email-Client-Id':'8f3a19d7-046b-4510-9ddf-eb85407ae621','Content-Type':'application/json'};
 function request(url,method='GET',payload){return new Promise((resolve,reject)=>{
- const req=https.request(url,{rejectUnauthorized:false,method,headers},response=>{let data='';response.on('data',chunk=>data+=chunk);response.on('end',()=>resolve({status:response.statusCode,data}));});
+ const req=https.request(url,{rejectUnauthorized:false,method,headers},response=>{let data='';response.on('data',chunk=>data+=chunk);response.on('end',()=>resolve({status:response.statusCode,headers:response.headers,data}));});
  req.on('error',reject);req.end(payload===undefined?undefined:JSON.stringify(payload));
 });}
 (async()=>{try{
  const options={resources,folder:path.join(temp,'dados'),gatewayPort:await freePort(),encrypt:async text=>Buffer.from(text),decrypt:async data=>data.toString(),log:console.log};
  host=await start(options);await check(host);
  assert.equal((await request(host.url)).status,200);
+ const image=await request(host.url+'/_next/image?url=%2Fundf-logo.png&w=64&q=75');
+ assert.equal(image.status,200,'A otimização de imagem com sharp deve funcionar no pacote Windows.');
+ assert.match(image.headers['content-type'],/^image\//);
  assert.equal((await request(host.url+'/api/system/lock/acquire','POST')).status,200);
  let result=await request(host.url+'/api/servers','POST',{name:'Teste Windows',registration:'12345',cpf:'00123456789',email:'teste@example.com',department:'Teste',workload:40});assert.equal(result.status,201,result.data);
  const professor=JSON.parse(result.data);

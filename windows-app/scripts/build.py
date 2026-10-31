@@ -37,6 +37,8 @@ def extract(archive,target):
   z.extractall(target)
 
 def main():
+ if sys.platform != 'win32':
+  raise RuntimeError('O pacote Windows deve ser montado em Windows x64 para validar os binários nativos do sharp. Execute o workflow windows-app.yml (windows-latest).')
  CACHE.mkdir(exist_ok=True)
  for name,url in URLS.items():download(name,url)
  if STAGE.exists():shutil.rmtree(STAGE)
@@ -71,19 +73,30 @@ def main():
  run(['pnpm','build'],ROOT/'frontend')
  standalone=ROOT/'frontend/.next/standalone'
  if not (standalone/'server.js').exists():raise RuntimeError('Build standalone do frontend não encontrado.')
- shutil.copytree(standalone,STAGE/'frontend',ignore=shutil.ignore_patterns('.env*'))
- run(['node','scripts/complete-frontend.cjs'],APP)
- # SWC/Sharp nativos do host não são necessários no servidor de produção:
- # a interface usa imagens unoptimized e não realiza compilação em produção.
- for candidate in list((STAGE/'frontend').rglob('*.node')):candidate.unlink()
+ run(['node','scripts/copy-standalone.cjs',str(standalone),str(STAGE/'frontend'),str(ROOT/'frontend'),'win32','x64'],APP)
  shutil.copytree(ROOT/'frontend/.next/static',STAGE/'frontend/.next/static',dirs_exist_ok=True)
  shutil.copytree(ROOT/'frontend/public',STAGE/'frontend/public',dirs_exist_ok=True)
  forbidden={'.env','.env.local','.env.production','.env.development','email.key','banco.bin'}
  for file in STAGE.rglob('*'):
-  if file.is_file() and file.name in forbidden:raise RuntimeError('Arquivo privado detectado no pacote: '+file.name)
+  if file.is_file() and (file.name.lower().startswith('.env') or file.name.lower() in forbidden):raise RuntimeError('Arquivo privado detectado no pacote: '+file.name)
  (STAGE/'runtime/dependencias-python-sha256.json').write_text(json.dumps(wheel_hashes,indent=2))
+ run(['node','scripts/validate-frontend.cjs',str(STAGE/'frontend'),'win32','x64'],APP)
  run(['node','scripts/package.cjs'],APP)
  archive=APP/'release/PontoDocente-Windows-Independente-x64.zip'
  archive.with_suffix('.zip.sha256').write_text(hashlib.sha256(archive.read_bytes()).hexdigest()+'  '+archive.name+'\n')
  print('Pacote gerado. Homologar em Windows antes de distribuir para produção.')
-if __name__=='__main__':main()
+if __name__=='__main__':
+ try:
+  main()
+ except subprocess.CalledProcessError as error:
+  print(f'ERRO de empacotamento: etapa {Path(str(error.cmd[0])).name} falhou (código {error.returncode}). Confira a mensagem da etapa acima. ZIP/SHA-256 não foram concluídos.',file=sys.stderr)
+  raise SystemExit(1) from None
+ except (OSError, RuntimeError, ValueError, shutil.Error) as error:
+  message=str(error)
+  if isinstance(error,shutil.Error):
+   entries=error.args[0]
+   if isinstance(entries,list) and entries:
+    source,target,reason=entries[0]
+    message=f'{source} -> {target}: {reason} ({len(entries)} falha(s) de cópia)'
+  print(f'ERRO de empacotamento: {message}',file=sys.stderr)
+  raise SystemExit(1) from None
