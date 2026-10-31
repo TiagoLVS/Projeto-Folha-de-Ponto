@@ -3,9 +3,9 @@ const fs=require('node:fs');const path=require('node:path');const {spawn}=requir
 const {track,terminate}=require('./lifecycle.cjs');
 // Comandos concluem em exit. Descendentes legítimos (postgres) podem manter
 // handles herdados. Arquivos de saída evitam pipes Node presos nesses handles.
-function runCommand(command,args,{cwd,env,outputFile,activeCommands=new Set(),timeout=120000,label=path.basename(command)}={}){
+function runCommand(command,args,{cwd,env,outputFile,activeCommands=new Set(),timeout=120000,label=path.basename(command),spawnImpl=spawn}={}){
  const fd=fs.openSync(outputFile,'w');let child;
- try{child=spawn(command,args,{cwd,env,windowsHide:true,stdio:['ignore',fd,fd]});}finally{fs.closeSync(fd);}
+ try{child=spawnImpl(command,args,{cwd,env,windowsHide:true,stdio:['ignore',fd,fd]});}finally{fs.closeSync(fd);}
  const record=track(child,label);record.kind='command';record.exited=false;activeCommands.add(record);
  return new Promise((resolve,reject)=>{
   let timedOut=false;
