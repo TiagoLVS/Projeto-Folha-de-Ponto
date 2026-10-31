@@ -5,6 +5,18 @@ from pathlib import Path
 import sys
 
 
+def verificar_postgres():
+    """Confirma TCP, autenticação e consulta no postmaster iniciado pelo launcher."""
+    import psycopg
+    with psycopg.connect(host=os.environ['DB_HOST'], port=os.environ['DB_PORT'],
+                         dbname='postgres', user=os.environ['DB_USER'],
+                         password=os.environ['DB_PASSWORD'], connect_timeout=5,
+                         options='-c statement_timeout=5000') as conn:
+        if conn.execute('SELECT 1').fetchone() != (1,):
+            raise RuntimeError('PostgreSQL não confirmou SELECT 1.')
+    print('PostgreSQL TCP / autenticação / SELECT 1 OK', flush=True)
+
+
 def preparar_banco():
     import psycopg
     from backend.startup import MIGRATIONS, ROOT
@@ -53,9 +65,10 @@ def certificado(folder,names):
     (target/'cert.pem').write_bytes(cert.public_bytes(serialization.Encoding.PEM))
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['database','certificate','serve'])
+    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['postgres-check','database','certificate','serve'])
     parser.add_argument('arguments',nargs='*');args=parser.parse_args()
-    if args.action=='database':preparar_banco()
+    if args.action=='postgres-check':verificar_postgres()
+    elif args.action=='database':preparar_banco()
     elif args.action=='certificate':certificado(args.arguments[0],args.arguments[1:])
     else:
         import uvicorn

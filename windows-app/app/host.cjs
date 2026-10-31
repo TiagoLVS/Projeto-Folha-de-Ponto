@@ -3,6 +3,7 @@ const fs=require('node:fs');const path=require('node:path');const os=require('no
 const net=require('node:net');const http=require('node:http');const https=require('node:https');
 const {spawn}=require('node:child_process');const {randomBytes}=require('node:crypto');
 const {fingerprint}=require('./network.cjs');
+const {runCommand}=require('./commands.cjs');
 const {alive,within,track,terminate,waitPidExit,closeLog}=require('./lifecycle.cjs');
 function freePort(){return new Promise((resolve,reject)=>{const server=net.createServer();server.on('error',reject);server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port));});});}
 function addresses(){return Object.values(os.networkInterfaces()).flat().filter(v=>v&&v.family==='IPv4'&&!v.internal).map(v=>v.address);}
@@ -10,7 +11,7 @@ function privateAddress(address){const ip=(address||'').replace(/^::ffff:/,'');r
 async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,postgresOptions=''}){
  fs.mkdirSync(folder,{recursive:true});fs.mkdirSync(path.join(folder,'logs'),{recursive:true});
  const logs=fs.createWriteStream(path.join(folder,'logs','servicos.log'),{flags:'a'});
- const children=[];let gateway,pgStarted=false,closing=false,stopPromise,postgresPid;
+ const services=[],commands=new Set();let commandNumber=0;let gateway,pgStarted=false,closing=false,stopPromise,postgresPid;
  const python=path.join(resources,'runtime','python','python.exe');
  const pgbin=path.join(resources,'runtime','pgsql','bin');const pgdata=path.join(folder,'postgres');
  const server=path.join(resources,'server');const entry=path.join(server,'runtime.py');
@@ -25,27 +26,35 @@ async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,post
   DIGEP_MODO_TESTE:'false',SMTP_HOST:'smtp.gmail.com',SMTP_PORT:'465',SMTP_SECURITY:'ssl',
   TESSERACT_CMD:path.join(resources,'runtime','tesseract','tesseract.exe'),TESSDATA_PREFIX:path.join(resources,'runtime','tesseract','tessdata'),OCR_LANG:'por',
   PYTHONUTF8:'1',PGPASSWORD:password};
- function child(command,args,overrides={}){
+ function startService(command,args,overrides={}){
   const item=spawn(command,args,{cwd:server,env:{...env,...overrides},windowsHide:true,stdio:['ignore','pipe','pipe']});
   item.on('error',()=>{item.spawnError=true;log('Não foi possível iniciar um componente do aplicativo.');});
-  item.stdout.pipe(logs,{end:false});item.stderr.pipe(logs,{end:false});children.push(track(item,path.basename(command)));return item;
+  item.stdout.pipe(logs,{end:false});item.stderr.pipe(logs,{end:false});services.push(track(item,path.basename(command)));return item;
  }
- function run(command,args,timeout=120000){return new Promise((resolve,reject)=>{
-  const item=child(command,args);const timer=setTimeout(()=>{item.kill();reject(new Error('Uma etapa de inicialização demorou além do esperado. Consulte os registros.'));},timeout);
-  let output='';item.stdout.on('data',chunk=>output+=chunk);
-  item.once('error',()=>{clearTimeout(timer);reject(new Error('Não foi possível iniciar um componente. Extraia a pasta completa do aplicativo.'));});
-  item.once('close',code=>{clearTimeout(timer);code===0?resolve(output):reject(new Error('Não foi possível preparar os serviços ('+path.basename(command)+', código '+code+'). Consulte os registros do aplicativo.'));});
- });}
+ async function run(command,args,timeout=120000){
+  const action=command===python?args[1]:(args.includes('start')?'start':args.includes('stop')?'stop':'');
+  const label=path.basename(command)+(action?' '+action:'');
+  const outputFile=path.join(folder,'logs','comando-'+(++commandNumber)+'-'+path.basename(command)+'.log');
+  try{
+   const output=await runCommand(command,args,{cwd:server,env,outputFile,activeCommands:commands,timeout,label});
+   logs.write(output);return output;
+  }catch(error){
+   // Conserva também a saída de comandos que falharam no log do smoke.
+   try{if(fs.existsSync(outputFile))logs.write(fs.readFileSync(outputFile,'utf8'));}catch(readError){log('Não foi possível ler o log de '+label+': '+readError.message);}
+   throw error;
+  }
+ }
  async function ready(port,pathname,item){
   for(let i=0;i<180;i++){
-   if(item.spawnError||item.exitCode!==null)throw new Error('Um serviço encerrou durante a inicialização. Consulte os registros.');
+   if(item.spawnError||item.exitCode!==null||item.signalCode!==null)throw new Error('Um serviço encerrou durante a inicialização. Consulte os registros.');
    try{if((await fetch(`http://127.0.0.1:${port}${pathname}`,{signal:AbortSignal.timeout(1000)})).ok)return;}catch{}
    await new Promise(resolve=>setTimeout(resolve,500));
   }
   throw new Error('O sistema demorou para iniciar. Consulte os registros.');
  }
  function processStatus(){
-  return [...children.map(record=>({pid:record.pid,command:record.command,active:!record.closed&&alive(record.pid),streamsClosed:record.closed})),
+  return [...services.map(record=>({pid:record.pid,command:record.command,active:!record.closed&&alive(record.pid),streamsClosed:record.closed})),
+   ...[...commands].map(record=>({pid:record.pid,command:record.command,kind:'command',active:!record.exited&&alive(record.pid)})),
    ...(postgresPid?[{pid:postgresPid,command:'postgres',active:alive(postgresPid)}]:[])];
  }
  function stop(){
@@ -57,14 +66,14 @@ async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,post
    if(gateway)await attempt(()=>within(new Promise((resolve,reject)=>{
     gateway.close(error=>error&&error.code!=='ERR_SERVER_NOT_RUNNING'?reject(error):resolve());gateway.closeAllConnections();
    }),15000,'fechar gateway HTTPS'));
-   await Promise.all(children.map(record=>attempt(()=>terminate(record))));
+   await Promise.all([...services,...commands].map(record=>attempt(()=>terminate(record))));
    if(pgStarted||fs.existsSync(path.join(pgdata,'postmaster.pid')))await attempt(async()=>{
     await run(path.join(pgbin,'pg_ctl.exe'),['-D',pgdata,'-m','fast','-w','stop'],30000);
     if(postgresPid)await waitPidExit(postgresPid);
     if(fs.existsSync(path.join(pgdata,'postmaster.pid')))throw new Error('PostgreSQL manteve postmaster.pid após stop.');
    });
-   // Inclui também o pg_ctl de encerramento e suas saídas de log.
-   await Promise.all(children.map(record=>attempt(()=>terminate(record))));
+   // Apenas serviços e comandos ainda ativos; launchers encerrados não são serviços.
+   await Promise.all([...services,...commands].map(record=>attempt(()=>terminate(record))));
    const remaining=processStatus().filter(item=>item.active||item.streamsClosed===false);
    if(remaining.length)errors.push(new Error('Processos/streams pendentes: '+JSON.stringify(remaining)));
    if(gateway?.listening)errors.push(new Error('Gateway HTTPS continua escutando.'));
@@ -81,12 +90,17 @@ async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,post
    try{await run(path.join(pgbin,'initdb.exe'),['-D',pgdata,'-U','ponto','--encoding=UTF8','--locale=C','--auth=scram-sha-256',`--pwfile=${passfile}`]);}finally{fs.rmSync(passfile,{force:true});}
   }
   if(fs.existsSync(path.join(pgdata,'postmaster.pid'))){
-   try{await run(path.join(pgbin,'pg_ctl.exe'),['-D',pgdata,'-m','fast','-w','stop'],30000);}catch{}
+   const previousPid=Number(fs.readFileSync(path.join(pgdata,'postmaster.pid'),'utf8').split(/\r?\n/)[0]);
+   if(alive(previousPid))await run(path.join(pgbin,'pg_ctl.exe'),['-D',pgdata,'-m','fast','-w','stop'],30000);
+   else log('Recuperando banco após encerramento anterior; PostgreSQL verificará o arquivo de PID.');
   }
   log('Iniciando banco de dados…');
   await run(path.join(pgbin,'pg_ctl.exe'),['-D',pgdata,'-l',path.join(folder,'logs','postgres.log'),'-o',`-h 127.0.0.1 -p ${dbPort} ${postgresOptions}`,'-w','start']);pgStarted=true;
   postgresPid=Number(fs.readFileSync(path.join(pgdata,'postmaster.pid'),'utf8').split(/\r?\n/)[0]);
   if(!Number.isSafeInteger(postgresPid)||postgresPid<=0)throw new Error('PID do PostgreSQL inválido.');
+  if(!alive(postgresPid))throw new Error('PostgreSQL encerrou após o launcher. PID '+postgresPid);
+  await run(python,[entry,'postgres-check'],15000);
+  if(!alive(postgresPid))throw new Error('PostgreSQL encerrou após SELECT 1. PID '+postgresPid);
   await run(python,[entry,'database']);
   const tlsFolder=path.join(folder,'certificado');
   await run(python,[entry,'certificate',tlsFolder,'localhost','127.0.0.1',os.hostname(),...addresses()]);
@@ -95,7 +109,7 @@ async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,post
   if(!languages.split(/\r?\n/).some(line=>line.trim()==='por'))throw new Error('OCR português não foi encontrado. Extraia o pacote completo.');
   log('OCR português ✓');
   log('Iniciando backend e interface…');
-  const backend=child(python,[entry,'serve']);await ready(apiPort,'/_ponto/health',backend);await ready(apiPort,'/',backend);
+  const backend=startService(python,[entry,'serve']);await ready(apiPort,'/_ponto/health',backend);await ready(apiPort,'/',backend);
   log('Backend ✓ · Interface ✓');
   const cert=fs.readFileSync(path.join(tlsFolder,'cert.pem'));const pin=fingerprint(cert);
   gateway=https.createServer({cert,key:fs.readFileSync(path.join(tlsFolder,'key.pem')),minVersion:'TLSv1.2'},(request,response)=>{
