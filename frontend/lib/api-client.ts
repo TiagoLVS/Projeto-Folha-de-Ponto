@@ -1,3 +1,4 @@
+import { apiFetch } from './api-transport.ts';
 import { sessionHeaders } from './client-session.ts';
 import { mutationsBlocked, setNetworkLock } from './network-lock.ts';
 
@@ -20,7 +21,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   }
   const headers = sessionHeaders(options.headers);
   if (typeof options.body === 'string') headers.set('Content-Type', 'application/json');
-  const response = await fetch(path, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
+  const response = await apiFetch(path, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
   const data = response.status === 204 ? null : await response.json().catch(() => null);
   if (response.status === 423) setNetworkLock({ locked: true, unavailable: false, checked: true });
   if (!response.ok) {

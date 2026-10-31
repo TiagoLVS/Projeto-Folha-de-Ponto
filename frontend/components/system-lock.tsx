@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api-transport';
 import { useEffect, useSyncExternalStore } from 'react';
 import { LockKeyhole, AlertCircle } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
@@ -33,7 +34,7 @@ export function SystemLock() {
       }
     }
     function focus() { clearTimeout(timer); if (!document.hidden) void check(); }
-    function release() { void fetch('/api/system/lock', { method: 'DELETE', headers: sessionHeaders(), keepalive: true }).catch(() => {}); }
+    function release() { void apiFetch('/api/system/lock', { method: 'DELETE', headers: sessionHeaders(), keepalive: true }).catch(() => {}); }
     void check();
     window.addEventListener('pagehide', release);
     document.addEventListener('visibilitychange', focus);

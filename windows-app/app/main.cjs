@@ -1,9 +1,11 @@
 'use strict';
-const {app,BrowserWindow,ipcMain,dialog,Menu,shell,safeStorage}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,Menu,shell,safeStorage,nativeTheme}=require('electron');
 const fs=require('node:fs');const path=require('node:path');
 const {connection,verifyCertificate,check}=require('./network.cjs');
 const {start}=require('./host.cjs');
 app.setName('PontoDocenteUnDF');
+nativeTheme.themeSource='system';
+if(app.commandLine.hasSwitch('ponto-test-mode') && process.env.PONTO_TEST_USER_DATA && fs.existsSync(path.join(process.env.PONTO_TEST_USER_DATA,'.ponto-smoke'))) app.setPath('userData',path.resolve(process.env.PONTO_TEST_USER_DATA));
 let window,host,config,quitting=false;
 const setupFile=path.join(__dirname,'setup.html');
 function file(){return path.join(app.getPath('userData'),'instalacao.json');}
@@ -28,7 +30,7 @@ async function connect(value){
   callback(request.hostname===hostname&&verifyCertificate(request.certificate.data,selected.fingerprint)?0:-2);
  });
  session.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
- const previous=window;window=new BrowserWindow({width:1440,height:960,minWidth:800,minHeight:600,title:'Ponto Docente · UnDF',webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});
+ const previous=window;window=new BrowserWindow({width:1440,height:960,minWidth:800,minHeight:600,title:'Ponto Docente · UnDF',webPreferences:{plugins:true,nodeIntegration:false,contextIsolation:true,sandbox:true}});
  window.webContents.on('will-navigate',(event,url)=>{if(new URL(url).origin!==origin)event.preventDefault();});
  window.webContents.setWindowOpenHandler(({url})=>new URL(url).origin===origin?{action:'allow',overrideBrowserWindowOptions:{webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}}}:{action:'deny'});
  for(const contents of [window.webContents])contents.on('did-fail-load',(_event,code,_description,_url,mainFrame)=>{if(mainFrame&&code!==-3)dialog.showMessageBox(window,{type:'error',message:'Não foi possível abrir o sistema.',detail:'Confira se o computador principal está ligado e conectado à mesma rede. Feche e abra o aplicativo para tentar novamente.'});});

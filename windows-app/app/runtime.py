@@ -59,4 +59,7 @@ if __name__=='__main__':
     elif args.action=='certificate':certificado(args.arguments[0],args.arguments[1:])
     else:
         import uvicorn
-        uvicorn.run('backend.api:app',host='127.0.0.1',port=int(os.environ['BACKEND_PORT']),log_level='warning',http='h11')
+        from backend.api import app
+        from backend.desktop import DesktopFrontend
+        application=DesktopFrontend(app,os.environ['PONTO_STATIC_FRONTEND'])
+        uvicorn.run(application,host='127.0.0.1',port=int(os.environ['BACKEND_PORT']),log_level='warning',http='h11')

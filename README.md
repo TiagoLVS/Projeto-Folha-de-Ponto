@@ -8,7 +8,7 @@ Aplicativo para cadastrar professores, gerar folhas de ponto, conferir documento
 2. Abra **PontoDocente.exe**. Não execute diretamente de dentro do ZIP.
 3. Na primeira abertura, escolha o tipo de instalação.
 
-O pacote inclui os componentes de banco de dados, processamento de documentos, OCR e interface. Os usuários não precisam instalar Python, Node.js ou PostgreSQL, nem abrir um terminal.
+O pacote inclui Electron, PostgreSQL privado, FastAPI, Python, OCR e uma interface React estática. Não inclui servidor Next nem `node_modules` do frontend. Os usuários não precisam instalar Python, Node.js ou PostgreSQL, nem abrir um terminal.
 
 **Situação do pacote:** gerado fora do Windows. Ainda precisa ser homologado em Windows 10/11 x64 antes de uso em produção, incluindo inicialização, reinicialização, OCR, compartilhamento e envio de e-mail. O executável não possui assinatura digital de editor.
 
@@ -44,6 +44,10 @@ A conta Google precisa ter verificação em duas etapas. Consulte as [instruçõ
 - Falhas de internet, tempo de espera, certificado e autenticação têm mensagens distintas.
 
 Salvar a conta não dispensa conexão com a internet nem autorização do Gmail. A instalação Windows usa `smtp.gmail.com`, porta `465`, SSL.
+
+## Aparência
+
+Em **Configurações → Tema**, o padrão **Sistema** acompanha o tema claro/escuro do Windows, inclusive se ele mudar com o aplicativo aberto. Você também pode escolher **Claro** ou **Escuro**. A preferência fica somente neste computador/perfil.
 
 ## Folhas de ponto
 

@@ -2,9 +2,10 @@
 import { formatCpf } from '@/lib/cpf';
 import { newId } from '@/lib/client-session';
 
-import Image from "next/image";
+import { BrandImage } from "@/components/brand-image";
+import { ThemeSettings } from "@/components/visual-theme";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, ArrowRight, Bell, CalendarDays, CheckCheck, Clock3, Download, FileText, Mail, Pencil, Plus, Search, Send, Users, X, AlertCircle, Trash2, FileSpreadsheet, Upload } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bell, CalendarDays, CheckCheck, Clock3, Download, FileText, Mail, Pencil, Plus, Search, Send, Users, X, AlertCircle, Trash2, FileSpreadsheet, Upload, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -31,9 +32,9 @@ import { listProfessors, saveProfessor as saveProfessorOnServer, deleteProfessor
 import { downloadSheet } from "@/lib/export-sheet";
 import { getBatchKey, sendSheetBatch, type BatchReceipt } from "@/lib/send-sheets";
 
-type View = "professores" | "folhas" | "perfil" | "folha" | "calendario" | "emails";
+type View = "professores" | "folhas" | "perfil" | "folha" | "calendario" | "emails" | "configuracoes";
 const INITIAL_MONTH = new Date().toISOString().slice(0, 7);
-function Logo() { return <Image unoptimized className="undf-logo" src="/undf-logo.png" alt="UnDF — Universidade do Distrito Federal" width="600" height="426" />; }
+function Logo() { return <BrandImage className="undf-logo" src="/undf-logo.png" alt="UnDF — Universidade do Distrito Federal" width="600" height="426" />; }
 
 function Loading({ onDone }: { onDone: () => void }) {
   const [leaving, setLeaving] = useState(false);
@@ -43,24 +44,25 @@ function Loading({ onDone }: { onDone: () => void }) {
     const done = setTimeout(onDone, reduced ? 300 : 2600);
     return () => { clearTimeout(leave); clearTimeout(done); };
   }, [onDone]);
-  return <div className={`loading-screen ${leaving ? "loading-leaving" : ""}`} role="status" aria-live="polite"><div className="loading-orbit" aria-hidden="true" /><div className="loading-light light-one" aria-hidden="true" /><div className="loading-light light-two" aria-hidden="true" /><div className="loading-inner"><div className="logo-assembly" aria-label="Logo da UnDF se formando">{[0, 1, 2, 3].map(i => <Image unoptimized key={i} src="/undf-logo.png" alt="" className={`logo-piece piece-${i}`} aria-hidden="true" width="600" height="426" />)}</div><div className="loading-copy"><p className="eyebrow">GESTÃO ACADÊMICA</p><h1>Ponto docente</h1><p>Preparando seu espaço de trabalho</p></div><div className="loading-track" aria-hidden="true"><span /></div></div><button className="loading-skip" onClick={onDone}>Ir para o painel <ArrowRight size={16} /></button><p className="loading-footer">Universidade do Distrito Federal</p></div>;
+  return <div className={`loading-screen ${leaving ? "loading-leaving" : ""}`} role="status" aria-live="polite"><div className="loading-orbit" aria-hidden="true" /><div className="loading-light light-one" aria-hidden="true" /><div className="loading-light light-two" aria-hidden="true" /><div className="loading-inner"><div className="logo-assembly" aria-label="Logo da UnDF se formando">{[0, 1, 2, 3].map(i => <BrandImage key={i} src="/undf-logo.png" alt="" className={`logo-piece piece-${i}`} aria-hidden="true" width="600" height="426" />)}</div><div className="loading-copy"><p className="eyebrow">GESTÃO ACADÊMICA</p><h1>Ponto docente</h1><p>Preparando seu espaço de trabalho</p></div><div className="loading-track" aria-hidden="true"><span /></div></div><button className="loading-skip" onClick={onDone}>Ir para o painel <ArrowRight size={16} /></button><p className="loading-footer">Universidade do Distrito Federal</p></div>;
 }
 function StatusBadge({ value }: { value: Status }) { return <span className={`status-badge status-${value === "Identificada" ? "done" : value === "Erro na leitura" ? "error" : value === "Processando" || value === "Enviada" ? "progress" : "empty"}`}><span />{value}</span>; }
 function Avatar({ name, index = 0 }: { name: string; index?: number }) { return <span className={`avatar avatar-${index % 4}`}>{name.split(" ").filter(Boolean).slice(0, 2).map(p => p[0]).join("")}</span>; }
 function Navigation({ view, navigate }: { view: View; navigate: (v: View) => void }) {
   return <header className="floating-nav">
     <button className="nav-brand" onClick={() => navigate("professores")} aria-label="UnDF — início"><Logo /><span><strong>Ponto docente</strong><small>Gestão acadêmica</small></span></button>
-    <nav className="nav-segments !grid-cols-2 xl:!grid-cols-4" aria-label="Navegação principal">
+    <nav className="nav-segments !grid-cols-2 xl:!grid-cols-5" aria-label="Navegação principal">
       <button aria-current={["professores", "perfil", "folha"].includes(view) ? "page" : undefined} onClick={() => navigate("professores")}><Users size={17} />Professores</button>
       <button aria-current={view === "folhas" ? "page" : undefined} onClick={() => navigate("folhas")}><FileText size={17} />Folhas de ponto</button>
       <button aria-current={view === "calendario" ? "page" : undefined} onClick={() => navigate("calendario")}><CalendarDays size={17} />Calendário</button>
       <button aria-current={view === "emails" ? "page" : undefined} onClick={() => navigate("emails")}><Mail size={17} />E-mails</button>
+      <button aria-current={view === "configuracoes" ? "page" : undefined} onClick={() => navigate("configuracoes")}><Settings size={17} />Configurações</button>
     </nav>
     <div className="nav-account"><span className="account-dot" /><span>Administração</span><Avatar name="Administração UnDF" /></div>
   </header>;
 }
 
-export function PontoApp({ initialView = "professores" }: { initialView?: "professores" | "calendario" | "emails" }) {
+export function PontoApp({ initialView = "professores", desktopNavigation = false }: { initialView?: "professores" | "calendario" | "emails" | "folhas" | "configuracoes"; desktopNavigation?: boolean }) {
   const [loading, setLoading] = useState(true);
   const finishLoading = useCallback(() => setLoading(false), []);
   const [professors, setProfessors] = useState<Professor[]>([]);
@@ -111,6 +113,12 @@ export function PontoApp({ initialView = "professores" }: { initialView?: "profe
   const [month, setMonth] = useState(INITIAL_MONTH);
   const [view, setView] = useState<View>(initialView);
   const [sheetsTab, setSheetsTab] = useState("branco");
+  useEffect(() => {
+    if (!desktopNavigation) return;
+    const change = () => { const view = window.location.hash.slice(1); if (['professores','folhas','calendario','emails','configuracoes'].includes(view)) setView(view as View); };
+    window.addEventListener('hashchange', change);
+    return () => window.removeEventListener('hashchange', change);
+  }, [desktopNavigation]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("Todas as situações");
@@ -150,7 +158,7 @@ export function PontoApp({ initialView = "professores" }: { initialView?: "profe
   const selectable = visible.filter(p => historyReady && canEmailSheet(p.sheets[month]) && validEmail(p.email));
   const allChecked = selectable.length > 0 && selectable.every(p => selection.includes(p.id));
   function openGeneration() { setSheetsTab("branco"); navigate("folhas"); }
-  function navigate(v: View) { setView(v); setQuery(""); setFilter("Todas as situações"); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function navigate(v: View) { if (desktopNavigation && !["perfil", "folha"].includes(v)) window.location.hash = v; setView(v); setQuery(""); setFilter("Todas as situações"); window.scrollTo({ top: 0, behavior: "smooth" }); }
   function openProfile(p: Professor) { setSelectedId(p.id); setView("perfil"); window.scrollTo({ top: 0, behavior: "smooth" }); }
   function openSheet(p: Professor, period: string) { setSelectedId(p.id); setSheetMonth(period); setFormError(""); setView("folha"); window.scrollTo({ top: 0, behavior: "smooth" }); }
   function openSend(ids: string[], period = month) { setSend({ ids, month: period }); setAudience("all"); setSendError(""); setReceipt(null); setCompletedIds([]); }
@@ -214,13 +222,14 @@ export function PontoApp({ initialView = "professores" }: { initialView?: "profe
     <section className="table-card" id="professor-table"><div className="table-toolbar professor-toolbar"><label className="search-field"><Search size={18} /><Input placeholder="Buscar por nome, matrícula ou CPF" aria-label="Buscar por nome, matrícula ou CPF" value={query} onChange={e => setQuery(e.target.value)} />{query && <button aria-label="Limpar pesquisa" onClick={() => setQuery("")}><X size={16} /></button>}</label><NativeSelect aria-label="Filtrar situação" value={filter} onChange={e => setFilter(e.target.value)}><NativeSelectOption>Todas as situações</NativeSelectOption><NativeSelectOption>Identificada</NativeSelectOption><NativeSelectOption>Enviada</NativeSelectOption><NativeSelectOption>Processando</NativeSelectOption><NativeSelectOption>Erro na leitura</NativeSelectOption><NativeSelectOption>Sem folha</NativeSelectOption></NativeSelect>{view === "professores" && <Button variant="outline" disabled={savingProfessor} onClick={() => { openProfessorEditor({ id: newId(), name: "", registration: "", cpf: null, email: "", department: "", workload: null, sheets: {} }, true); }}><Plus size={16} />Adicionar professor</Button>}{view === 'professores' && <Button variant="outline" disabled={blocked || !!dataError} onClick={() => setImportOpen(true)}><FileSpreadsheet size={16} />Importar Excel</Button>}<span className="result-count">{visible.length} {visible.length === 1 ? "resultado" : "resultados"}</span></div><div className="table-scroll"><Table><TableHeader><TableRow><TableHead><Checkbox aria-label="Selecionar todas as folhas aptas visíveis" checked={allChecked ? true : selectable.some(p => selection.includes(p.id)) ? 'indeterminate' : false} disabled={blocked || !selectable.length} onCheckedChange={checked => setSelection(ids => checked === true ? [...new Set([...ids, ...selectable.map(p => p.id)])] : ids.filter(id => !selectable.some(p => p.id === id)))} /></TableHead><TableHead>Matrícula</TableHead><TableHead>Professor</TableHead><TableHead>Documento</TableHead><TableHead>Situação da folha</TableHead><TableHead className="actions-head">Ações</TableHead></TableRow></TableHeader><TableBody>{visible.map((p, i) => <TableRow key={p.id}><TableCell><Checkbox aria-label={`Selecionar ${p.name} para envio`} checked={selection.includes(p.id)} disabled={blocked || !historyReady || !canEmailSheet(current(p)) || !validEmail(p.email)} onCheckedChange={checked => setSelection(ids => checked === true ? [...new Set([...ids, p.id])] : ids.filter(id => id !== p.id))} /></TableCell><TableCell className="registration">{p.registration}</TableCell><TableCell><button className="professor-cell" onClick={() => view === "folhas" ? openSheet(p, month) : openProfile(p)}><Avatar name={p.name} index={i} /><span><strong>{p.name}</strong><small>{p.department}{!p.cpf ? " · CPF pendente" : ""}</small></span></button></TableCell><TableCell className="hours-cell">{current(p)?.attachment.name || "—"}</TableCell><TableCell><StatusBadge value={sheetStatus(current(p))} /></TableCell><TableCell><div className="row-actions"><button className="text-action" onClick={() => view === "folhas" ? openSheet(p, month) : openProfile(p)}>{view === "folhas" ? "Abrir folha" : "Ver detalhes"}<ArrowRight size={14} /></button><button className="icon-button" aria-label={`Editar ${p.name}`} title="Editar professor" disabled={blocked} onClick={() => { openProfessorEditor({ ...p }); }}><Pencil size={16} /></button><Button variant="ghost" size="icon" className="icon-button text-destructive" aria-label={`Excluir ${p.name}`} disabled={blocked || deleting} onClick={() => setRemoving(p)}><Trash2 size={16} /></Button></div></TableCell></TableRow>)}</TableBody></Table></div>{!visible.length && <div className="empty-state"><Search size={30} /><h3>Nenhum professor encontrado</h3><p>Tente outro nome, matrícula, CPF ou situação.</p><Button variant="outline" onClick={() => { setQuery(""); setFilter("Todas as situações"); }}>Limpar filtros</Button></div>}<footer className="table-footer"><span>Exibindo {visible.length} de {professors.length} professores</span><span>{monthLabel(month)}</span></footer></section></div>;
 
   return <><div inert={loading || !storageReady || undefined}><div className="app-shell"><Navigation view={view} navigate={navigate} /><div className="app-main">
-    <header className="topbar"><div className="breadcrumb"><span>Gestão acadêmica</span><span className="slash">/</span><strong>{view === "calendario" ? "Calendário acadêmico" : view === "emails" ? "Histórico de e-mails" : view === "professores" ? "Professores" : view === "folhas" ? "Folhas de ponto" : selected?.name}</strong></div><div className="topbar-right"><button aria-label="Ver professores sem folha" className="notification" onClick={() => { navigate("professores"); setFilter("Sem folha"); }}><Bell size={19} /><i /></button></div></header>
+    <header className="topbar"><div className="breadcrumb"><span>Gestão acadêmica</span><span className="slash">/</span><strong>{view === "configuracoes" ? "Configurações" : view === "calendario" ? "Calendário acadêmico" : view === "emails" ? "Histórico de e-mails" : view === "professores" ? "Professores" : view === "folhas" ? "Folhas de ponto" : selected?.name}</strong></div><div className="topbar-right"><button aria-label="Ver professores sem folha" className="notification" onClick={() => { navigate("professores"); setFilter("Sem folha"); }}><Bell size={19} /><i /></button></div></header>
     <main className="workspace" id="main-content">
     {dataError && <Alert variant="destructive" className="mb-4"><AlertDescription>{dataError}<Button variant="outline" onClick={reload}>Tentar novamente</Button></AlertDescription></Alert>}
     {historyError && ['professores', 'folhas', 'perfil', 'folha'].includes(view) && <Alert className="mb-4"><AlertDescription>Histórico remoto indisponível: {historyError} <Button variant="outline" onClick={reload}>Atualizar histórico</Button></AlertDescription></Alert>}
 
     {view === "calendario" && <AcademicCalendar />}
     {view === "emails" && <EmailHistory />}
+    {view === "configuracoes" && <div className="academic-page view-enter"><div className="page-heading"><h1>Configurações</h1></div><ThemeSettings /></div>}
 
     {view === "folhas" && <section className="view-enter" aria-label="Folhas de ponto">
       <div className="page-heading"><div><h1>Folhas de ponto</h1><p>Gere e envie os modelos ou acompanhe as folhas preenchidas.</p></div></div>

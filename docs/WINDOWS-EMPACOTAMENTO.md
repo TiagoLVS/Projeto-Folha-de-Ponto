@@ -1,66 +1,97 @@
-# Montagem técnica do aplicativo Windows
+# Aplicativo Windows independente
 
-O aplicativo tem dois modos: principal (PostgreSQL privado + FastAPI + Next standalone + gateway HTTPS) e equipe (acesso HTTPS ao principal, sem outro banco). Electron mantém a interface existente. Não é necessário um servidor previamente instalado no computador principal.
+## Arquitetura
 
-## Montar
+O executável continua abrindo uma janela própria Electron. A versão web Next.js permanece disponível; somente a interface empacotada para Windows mudou.
 
-No ambiente de desenvolvimento, instalar dependências do frontend conforme `package.json`, dependências Python e 7-Zip. Na pasta `windows-app`:
+Antes:
 
 ```text
-npm ci
-npm run build
-npm test
+Electron → servidor Next standalone → node_modules/.pnpm → FastAPI → PostgreSQL/OCR
 ```
 
-A montagem final deve ser feita em **Windows x64** (incluindo o runner `windows-latest`), para executar a validação dos binários nativos da plataforma antes de publicar o pacote. Os testes de cópia e o frontend continuam podendo ser verificados no ambiente de desenvolvimento.
+As cópias do standalone falhavam no runner Windows com `EPERM`/`Access is denied` ao percorrer junctions de dependências pnpm. Trocar a ferramenta de cópia não eliminava essa árvore de links.
 
-`PYTHON` pode apontar para um Python de desenvolvimento com pip. O script usa o ambiente `.venv` do projeto, se existir. O build baixa wheels Windows x64/CPython 3.13 e verifica o runtime do frontend com as bibliotecas nativas Windows. O módulo principal `build.py` usa `pnpm build` e o frontend standalone de produção. A instalação do pacote extraído não executa pip/npm nem acessa sites de download.
+Agora:
 
-Runtimes fixados por URL e SHA-256 em `runtime-sha256.json`. Esses hashes registram os artefatos obtidos por HTTPS, não substituem uma assinatura do fornecedor. Atualizações dos runtimes exigem revisar URLs/hashes e homologar novamente. Electron é obtido pelo Packager, com verificação do mecanismo de download do Electron. Os wheels ficam registrados com seus hashes no pacote.
+```text
+Computador principal
+Electron → HTTPS privado → FastAPI + frontend React estático
+                              ↓
+                       PostgreSQL / OCR / Excel / PDF
 
-Inclui PostgreSQL 17, Python 3.13 embeddable, Tesseract 5.4 e idioma português, Electron 45 e dependências Python fixadas. O backend do pacote usa uvicorn sem extras Unix. A montagem copia uma lista explícita de fontes e rejeita `.env`, chaves e configuração local. PDFs, banco real e credenciais não são incluídos.
+Computador da equipe
+Electron → HTTPS + certificado fixado → computador principal
+```
 
-Fontes: [Python](https://www.python.org/downloads/release/python-3139/), [PostgreSQL/EDB](https://www.postgresql.org/download/windows/), [OCR UB Mannheim](https://github.com/UB-Mannheim/tesseract/releases/tag/v5.4.0.20240606), [Tessdata](https://github.com/tesseract-ocr/tessdata_fast), [Electron](https://www.electronjs.org/docs/latest/tutorial/security). As licenças dos componentes precisam acompanhar a distribuição; PyMuPDF usa AGPL ou licença comercial.
+O build desktop usa React/Vite e gera `windows-app/frontend-dist`. Next static export não atende sozinho aos proxies API existentes; o Vite permite manter o Next web sem levar seu servidor para o pacote. `windows-app/frontend/main.tsx` importa o mesmo `PontoApp`, providers, serviços, formulários, tabelas, ícones e folhas de estilo da web. Não existe uma cópia das telas de negócio. A navegação desktop usa hash para Professores, Folhas, Calendário, E-mails e Configurações.
 
-## Armazenamento e segurança
+O transporte central `frontend/lib/api-transport.ts` mantém `/api` na mesma origem: na web, as API Routes Next encaminham a requisição; no desktop, `backend/desktop.py` adapta os caminhos para as rotas FastAPI existentes. Corpo multipart, queries, headers, status, arquivos, locks, identificação da conta e chaves de idempotência são preservados. As regras continuam no backend original. Recursos desconhecidos retornam 404, sem disfarçar assets ausentes como HTML.
 
-`PONTO_DATA_DIR` permite gravar os PDFs fora dos arquivos do programa. Sem a variável, o desenvolvimento mantém `data/` no projeto. O pacote usa o perfil Windows para dados, logs, certificados e segredos, sem alterar o `.env` da instalação de desenvolvimento.
+## Runtimes e segurança
 
-PostgreSQL e FastAPI escutam somente em loopback, em portas internas escolhidas na inicialização. O frontend Node standalone usa o Node incluído no Electron (`ELECTRON_RUN_AS_NODE`). Apenas o gateway HTTPS porta 5173 escuta na rede; solicitações de endereços públicos são rejeitadas. Não há serviço instalado no Windows nem inicialização automática ao ligar o computador: abrir/fechar o principal inicia/encerra os serviços.
+O principal inicia PostgreSQL 17 privado e Python 3.13 embeddable/FastAPI em loopback, com portas internas livres. O mesmo FastAPI serve HTML/JS/CSS locais. Apenas o gateway HTTPS na porta 5173 recebe conexões da rede privada. Electron 45 fornece Chromium; não há processo servidor Next, `server.js`, `.next` ou `node_modules` no frontend distribuído. A equipe acessa a interface do principal e não inicia outro PostgreSQL.
 
-O certificado é criado localmente por cryptography. O arquivo de conexão contém somente URL e impressão digital SHA-256. O cliente confere o certificado exato, sem desativar a verificação para outros destinos. O fluxo de senha de e-mail continua exigindo HTTPS em rede. Nenhum cliente recebe senha de PostgreSQL ou chave SMTP.
+Tesseract 5.4 e `por.traineddata`, PyMuPDF e as dependências Excel/PDF continuam incluídos. A inicialização verifica banco, API, página inicial e disponibilidade do OCR português, mostrando progresso. Fechar o principal encerra seus serviços e preserva os dados no perfil Windows. O pacote extraído não executa npm, pnpm ou pip e não exige runtimes globais. Abrir a interface e usar o banco local não exige internet; SMTP exige acesso ao provedor.
 
-A senha do banco privado é gerada aleatoriamente e protegida com safeStorage/DPAPI; é passada aos processos por ambiente. A chave de cifragem SMTP fica em `principal/secrets`. O perfil Windows deve ser protegido. Não é um produto para exposição pública na internet: os usuários da rede privada acessam o sistema sem login, conforme o requisito existente.
+Os componentes de imagem compartilhados usam imagens locais sem otimização de servidor. O desktop não importa Next nem Sharp e não possui endpoint `/_next/image`. Não há remoção de binários `.node` como contorno: Sharp pertence à instalação de build/web, não à aplicação estática. A versão web continua com sua configuração Next e dependências normais. O teste do serviço exige que `/_next/image` retorne 404 no desktop.
 
-## Homologação Windows obrigatória
+`contextIsolation: true`, `nodeIntegration: false` e sandbox permanecem ativos. React não recebe acesso ao sistema de arquivos ou processos. CSP e recursos locais dispensam CDN. O cliente mantém pinning SHA-256 do certificado exportado pelo principal; a validação TLS não é desabilitada globalmente. PostgreSQL usa senha aleatória protegida por safeStorage/DPAPI. A chave SMTP permanece no perfil protegido. O pacote não contém `.env`, banco real, PDFs ou credenciais da instalação de desenvolvimento.
 
-1. Extração em pasta com espaços e usuário com acentos, sem Python/Node/PostgreSQL no PATH.
-2. Primeira abertura e reabertura do principal, persistência de cadastros/PDFs/contas.
-3. Conexão de dois computadores com JSON exportado; certificado incorreto deve falhar.
-4. Geração PDF, upload multipágina, OCR português, calendário, Excel e limites.
-5. Conexão Gmail com senha de aplicativo e envio somente a destinatários fictícios autorizados.
-6. Encerramento do principal sem processos órfãos, preservando serviços que não pertencem ao aplicativo.
-7. Backup, atualização, migração com dump prévio e recuperação de falha.
-8. Firewall privado e mensagens quando a porta 5173 estiver ocupada ou principal indisponível.
+Dados do principal: `%APPDATA%\\PontoDocenteUnDF\\principal`. O JSON de conexão contém somente URL e impressão digital. Não coloque o diretório PostgreSQL em pasta de rede. O principal precisa permanecer aberto para a equipe trabalhar. Backup/transferência seguem o LEIA-ME incluído.
 
-A validação feita no host de montagem não substitui esses testes Windows. Não foi usado Wine nem executado um binário Windows aqui.
+## Tema visual
 
-O workflow manual `windows-app.yml` monta o pacote em Windows e executa `scripts/smoke.cjs` com dados temporários, verificando cadastro, geração de PDF, persistência, HTTPS e reinicialização. O workflow não foi disparado nesta sessão. A interface gráfica, DPAPI e OCR real permanecem na homologação manual.
+O padrão é **Sistema**: Windows claro → interface clara; Windows escuro → interface escura. Mudanças do sistema atualizam a interface aberta. Em Configurações, Claro ou Escuro substituem essa escolha automática. Apenas a preferência visual fica no localStorage do computador, sem gravar dados de negócio ou senhas ali. Cards, navegação, tabelas, calendário, campos, modais e alertas compartilham os tokens do tema. A tela inicial também acompanha o sistema.
 
-## Cópia do standalone e validação
+## Gerar o pacote
 
-A instalação do frontend no workflow Windows usa **pnpm 11.25.0** com `--config.node-linker=hoisted` e `--frozen-lockfile`. Antes dela, são removidos `frontend/node_modules` e `frontend/.next`, sem ignorar erros de remoção. O workflow exige `nodeLinker: hoisted` no `.modules.yaml` gerado. O override vale somente para esse comando de instalação; não há alteração em `pnpm-workspace.yaml`, `.npmrc` ou `pnpm-lock.yaml`, preservando o linker padrão no desenvolvimento.
+Em uma máquina de build Windows x64, instale Node 24, pnpm 11.25.0, Python com pip e 7-Zip. Essas ferramentas são para montagem, não para usuários finais. Na raiz:
 
-O layout [hoisted do pnpm](https://pnpm.io/settings/node-modules#nodelinker) usa diretórios de pacotes reais em vez da árvore de symlinks/junctions `.pnpm`. A sintaxe do override foi conferida com a versão 11.25.0. O build continua em `windows-latest`; não usa privilégios administrativos como correção.
+```powershell
+pnpm --dir frontend install --frozen-lockfile
+npm --prefix windows-app ci
+pnpm --dir frontend test
+pnpm --dir frontend exec tsc --noEmit --incremental false
+pnpm --dir frontend lint
+pnpm --dir frontend check:desktop
+pnpm --dir frontend build:desktop
+npm --prefix windows-app test
+npm --prefix windows-app run build
+```
 
-`build.py` chama `copy-standalone.cjs` para copiar essa árvore. O helper e `complete-frontend.cjs` compartilham `frontend-files.cjs`: `fs.cpSync` recursivo **sem seguir links**, com filtro de arquivos privados. Não há mais busca de ancestrais reais ou tentativa de reconstruir/materializar a árvore `.pnpm`. Um link/junction inesperado causa falha explícita, orientando reinstalar com hoisted. A verificação usa `lstat`, sem acessar seu alvo, e a validação final também rejeita links residuais. `.env*` (incluindo variantes de caixa), `.git`, `.secrets` e arquivos de credenciais continuam excluídos.
+`build.py` recompila a interface para evitar artefatos antigos, valida os arquivos, monta os runtimes, empacota Electron e, no Windows, executa os testes de serviços e janela antes do ZIP/SHA-256. `PYTHON` pode indicar o Python de build; uma `.venv` existente também é reconhecida pelo launcher. Runtimes são fixados por URL/SHA-256 em `windows-app/runtime-sha256.json`; hashes dos wheels ficam no pacote. A instalação do frontend com linker hoisted no workflow é apenas de build; não é mais necessária para copiar o standalone, pois essa cópia deixou de existir. O linker normal do desenvolvimento não foi alterado.
 
-A complementação apenas reproduz os caminhos físicos existentes no `node_modules` hoisted, incluindo versões aninhadas, e confere suas dependências declaradas. Não escolhe versões ou destinos manualmente. Pacotes nativos `@img/sharp-*` são localizados pelo manifesto mesmo quando o `exports` impede resolver `package.json` pela API pública.
+Saída:
 
-`validate-frontend.cjs` roda em subprocesso a partir do staging, sem `NODE_PATH` nem opções Node externas. Confere `server.js`, ausência de links e arquivos privados, resolução e carregamento de `next`, `react`, `react-dom` e `react-dom/server`; verifica a árvore de dependências obrigatórias, helpers dinâmicos e se React/ReactDOM usam a mesma cópia de React. Toda resolução precisa ficar dentro do pacote, sem fallback para o `node_modules` da máquina de build. Dependência ausente causa erro com o nome e código de saída diferente de zero.
+```text
+windows-app/release/PontoDocente-Windows-Independente-x64.zip
+windows-app/release/PontoDocente-Windows-Independente-x64.zip.sha256
+```
 
-### Sharp e arquivos nativos
+Dentro do ZIP, `PontoDocente/PontoDocente.exe` e `resources/{frontend,server,runtime}` precisam permanecer juntos. `--prepare-only` prepara a pasta sem afirmar que ela foi homologada; não produz uma nova entrega validada. Os scripts antigos de materialização do pnpm foram removidos por não terem mais chamadas.
 
-Não se removem mais arquivos `.node`. A aplicação usa `unoptimized` nos componentes de imagem atuais, mas `next.config.ts` **não desativa globalmente** a otimização. Portanto, o pacote conserva `sharp`, a dependência nativa da plataforma e libvips; a validação executa uma transformação PNG real e confere que o binário carregado pertence ao staging. O workflow repete essa validação nos arquivos empacotados usando o Node incluído no Electron. O smoke Windows também solicita `/_next/image` e exige resposta de imagem válida. Não foi alterado o comportamento normal do frontend.
+## Validação e workflow
 
-Os testes verificam a cópia independente de uma árvore hoisted, a rejeição explícita de junctions cíclicos/quebrados (sem segui-los), exclusão de segredos, preservação de binários, versões distintas e rejeição de resolução externa. Os fixtures Windows usam junctions de diretório, que não exigem privilégios administrativos. O build mantém a geração do ZIP e SHA-256 após todas as validações; erros de cópia/etapa são apresentados de forma resumida e continuam fazendo o workflow falhar.
+O workflow manual `.github/workflows/windows-app.yml` permanece em `windows-latest`. Executa testes/tipos/lint, build estático, montagem, validação do staging, testes de rede/configuração, smoke de serviços usando o Node do próprio Electron, smoke da janela real (cinco telas em ambos os temas), ZIP/SHA-256 e artifact. Qualquer falha interrompe a publicação.
+
+`validate-frontend.cjs` exige `index.html`, JavaScript e recursos locais existentes e rejeita links, arquivos privados, Next e node_modules no frontend. O ZIP também verifica executável, backend, Python, PostgreSQL, Tesseract e idioma português. Não há resolução de next/react/react-dom no staging: React é compilado no bundle e Next deixou de ser uma dependência de execução desktop.
+
+`smoke.cjs` usa perfil temporário e serviços reais para verificar inicialização, HTTPS, certificado errado, CRUD, PDF/download, persistência e reabertura. `smoke-gui.cjs` abre o executável em perfil descartável, com PATH limitado ao Windows, verifica setup, interface estática, tema automático/manual, formulário, reload e encerramento. Playwright é somente ferramenta de build e não entra no pacote. Não conecta SMTP. Os testes Python e frontend cobrem importações, calendário PDF/Excel, OCR, conta/e-mail, histórico, locks e idempotência sem acessar contas reais.
+
+Verificação complementar do desenvolvimento:
+
+```text
+python -m unittest discover -s tests -v
+pnpm --dir frontend build
+```
+
+Testes de repositório precisam de um PostgreSQL descartável configurado com `FOLHA_TEST_DSN`; nunca use o banco real para isso.
+
+### Medições e limites da homologação
+
+A interface anterior tinha 296.694.031 bytes (~283 MiB). A nova interface estática tem aproximadamente 673 mil bytes (~0,64 MiB), redução de cerca de 99,8% nessa parte. O ZIP anterior tinha 460.179.465 bytes (~439 MiB). Na montagem local, o ZIP estático ficou em aproximadamente 370 milhões de bytes (~353 MiB): redução de cerca de 86 MiB, ou 19,6%. Electron, Python, PostgreSQL e OCR continuam necessários e não foram removidos. Pequenas diferenças são esperadas conforme a compressão e a plataforma de build.
+
+Nesta refatoração, testes Python, web, build desktop, smoke com serviços privados locais e inspeção visual em Electron Linux foram executados. Isso não equivale a executar o binário Windows. O workflow atualizado precisa ser rodado no GitHub antes de distribuir a nova versão. Homologar também duas máquinas reais, firewall, DPAPI, OCR Windows com documentos de teste, importações e envio SMTP autorizado. Não foi enviado e-mail real nem alterado o banco da instalação durante os testes. Testes visuais locais usam fixtures fictícias; os testes de serviços usam PostgreSQL descartável.
+
+As licenças dos runtimes acompanham a distribuição. O projeto usa PyMuPDF (AGPL ou licença comercial); a mudança de frontend não altera essas obrigações.

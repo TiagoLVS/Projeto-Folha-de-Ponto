@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Instalar ferramentas de build
+      - name: Instalar ferramentas
         shell: pwsh
         run: |
           npm install --global pnpm@11.25.0
@@ -23,38 +23,50 @@ jobs:
           if (Test-Path -LiteralPath 'frontend/node_modules') {
             Remove-Item -LiteralPath 'frontend/node_modules' -Recurse -Force -ErrorAction Stop
           }
-          if (Test-Path -LiteralPath 'frontend/.next') {
-            Remove-Item -LiteralPath 'frontend/.next' -Recurse -Force -ErrorAction Stop
-          }
           pnpm --dir frontend install --frozen-lockfile --config.node-linker=hoisted
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node -e "const m = JSON.parse(require('node:fs').readFileSync('frontend/node_modules/.modules.yaml', 'utf8')); if (m.nodeLinker !== 'hoisted') throw new Error('O frontend deve usar nodeLinker=hoisted.'); console.log('Instalação hoisted confirmada: ' + m.packageManager);"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm --prefix windows-app ci
+      - name: Testar frontend
+        shell: pwsh
+        run: |
+          pnpm --dir frontend test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --dir frontend exec tsc --noEmit --incremental false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --dir frontend lint
+      - name: Build frontend desktop
+        shell: pwsh
+        run: |
+          pnpm --dir frontend check:desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --dir frontend build:desktop
       - name: Montar aplicativo
         shell: pwsh
-        run: npm --prefix windows-app run build
-      - name: Validar frontend no staging
+        run: npm --prefix windows-app run build -- --prepare-only
+      - name: Validar frontend
         shell: pwsh
-        run: node windows-app/scripts/validate-frontend.cjs windows-app/staging/frontend win32 x64
-      - name: Testar rede e configuração
+        run: node windows-app/scripts/validate-frontend.cjs windows-app/staging/frontend
+      - name: Testar rede/configuração
         shell: pwsh
         run: npm --prefix windows-app test
-      - name: Conferir runtimes e dados temporários
+      - name: Smoke test dos serviços
         shell: pwsh
         run: |
           $env:ELECTRON_RUN_AS_NODE='1'
-          $validationPath = (Resolve-Path '.\windows-app\scripts\validate-frontend.cjs').Path
-          $frontendPath = (Resolve-Path '.\windows-app\release\PontoDocente-win32-x64\resources\frontend').Path
-          $arguments = '"' + $validationPath + '" "' + $frontendPath + '" win32 x64'
-          $validation = Start-Process -FilePath '.\windows-app\release\PontoDocente-win32-x64\PontoDocente.exe' -ArgumentList $arguments -NoNewWindow -Wait -PassThru
-          if ($validation.ExitCode -ne 0) { exit $validation.ExitCode }
           $scriptPath = (Resolve-Path '.\windows-app\scripts\smoke.cjs').Path
           $process = Start-Process -FilePath '.\windows-app\release\PontoDocente-win32-x64\PontoDocente.exe' -ArgumentList ('"' + $scriptPath + '"') -NoNewWindow -Wait -PassThru
           exit $process.ExitCode
-      - uses: actions/upload-artifact@v4
+      - name: Smoke test da janela Electron
+        shell: pwsh
+        run: node windows-app/scripts/smoke-gui.cjs
+      - name: Gerar ZIP e SHA-256
+        shell: pwsh
+        run: node windows-app/scripts/archive.cjs
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: PontoDocente-Windows-Independente-x64
+          if-no-files-found: error
           path: |
             windows-app/release/*.zip
             windows-app/release/*.sha256

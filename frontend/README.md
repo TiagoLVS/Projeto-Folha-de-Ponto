@@ -33,3 +33,7 @@ No modo real, a tela inicial oferece conexão de e-mail por computador/perfil, s
 ## Folhas de ponto
 
 A navegação reúne o trabalho em **Folhas de ponto**, com abas **Folhas em branco** (gerar, baixar, consultar versões e enviar modelos) e **Folhas preenchidas** (upload, conferência, situação por professor e documentos pendentes de vínculo). A competência é compartilhada entre as abas. O atalho **Gerar folhas** da página Professores abre a aba de modelos em branco. As funções e os dados existentes são preservados.
+
+## Frontend desktop compartilhado
+
+O Next continua sendo a versão web. `pnpm build:desktop` usa `vite.desktop.config.ts` para gerar uma SPA em `windows-app/frontend-dist`, importando os mesmos componentes, serviços e CSS, sem API Routes/SSR/Next no runtime Windows. `pnpm check:desktop` verifica os tipos. O transporte HTTP compartilhado usa `/api` de mesma origem: proxy Next na web; adaptador `backend/desktop.py` no desktop. Preferências Sistema/Claro/Escuro ficam em armazenamento visual local. Ver [arquitetura Windows](../docs/WINDOWS-EMPACOTAMENTO.md).

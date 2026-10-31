@@ -14,7 +14,9 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "dev:hosting": "node scripts/run-framework.mjs dev",
-    "build:hosting": "node scripts/run-framework.mjs build"
+    "build:hosting": "node scripts/run-framework.mjs build",
+    "build:desktop": "vite build --config vite.desktop.config.ts",
+    "check:desktop": "tsc --noEmit --project tsconfig.desktop.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

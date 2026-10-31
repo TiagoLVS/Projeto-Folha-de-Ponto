@@ -89,3 +89,5 @@ frontend/tsconfig.tsbuildinfo
 /windows-app/.cache/
 /windows-app/staging/
 /windows-app/release/
+
+/windows-app/frontend-dist/

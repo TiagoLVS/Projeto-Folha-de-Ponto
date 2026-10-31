@@ -17,10 +17,10 @@ URLS={
  'por.traineddata':'https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/por.traineddata',
 }
 
-def run(args,cwd=ROOT):
+def run(args,cwd=ROOT,env=None):
  # No Windows, resolva também os launchers .cmd instalados pelo npm.
  command=shutil.which(args[0]) or args[0]
- subprocess.run([command,*args[1:]],cwd=cwd,check=True)
+ subprocess.run([command,*args[1:]],cwd=cwd,check=True,env=env)
 def download(name,url):
  path=CACHE/name
  if not path.exists():
@@ -37,8 +37,6 @@ def extract(archive,target):
   z.extractall(target)
 
 def main():
- if sys.platform != 'win32':
-  raise RuntimeError('O pacote Windows deve ser montado em Windows x64 para validar os binários nativos do sharp. Execute o workflow windows-app.yml (windows-latest).')
  CACHE.mkdir(exist_ok=True)
  for name,url in URLS.items():download(name,url)
  if STAGE.exists():shutil.rmtree(STAGE)
@@ -68,23 +66,28 @@ def main():
  shutil.copytree(ROOT/'backend',server/'backend',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
  shutil.copytree(ROOT/'database',server/'database')
  shutil.copy2(APP/'app/runtime.py',server/'runtime.py')
- shutil.copytree(APP/'app',STAGE/'app',ignore=shutil.ignore_patterns('runtime.py'))
+ shutil.copytree(APP/'app',STAGE/'app',ignore=shutil.ignore_patterns('runtime.py','__pycache__','*.pyc'))
  shutil.copy2(ROOT/'frontend/public/undf-logo.png',STAGE/'app/logo.png')
- run(['pnpm','build'],ROOT/'frontend')
- standalone=ROOT/'frontend/.next/standalone'
- if not (standalone/'server.js').exists():raise RuntimeError('Build standalone do frontend não encontrado.')
- run(['node','scripts/copy-standalone.cjs',str(standalone),str(STAGE/'frontend'),str(ROOT/'frontend'),'win32','x64'],APP)
- shutil.copytree(ROOT/'frontend/.next/static',STAGE/'frontend/.next/static',dirs_exist_ok=True)
- shutil.copytree(ROOT/'frontend/public',STAGE/'frontend/public',dirs_exist_ok=True)
+ # Recompila sempre: um frontend-dist antigo não pode entrar na entrega.
+ run(['pnpm','build:desktop'],ROOT/'frontend')
+ run(['node','scripts/validate-frontend.cjs',str(APP/'frontend-dist')],APP)
+ shutil.copytree(APP/'frontend-dist',STAGE/'frontend')
  forbidden={'.env','.env.local','.env.production','.env.development','email.key','banco.bin'}
  for file in STAGE.rglob('*'):
   if file.is_file() and (file.name.lower().startswith('.env') or file.name.lower() in forbidden):raise RuntimeError('Arquivo privado detectado no pacote: '+file.name)
  (STAGE/'runtime/dependencias-python-sha256.json').write_text(json.dumps(wheel_hashes,indent=2))
- run(['node','scripts/validate-frontend.cjs',str(STAGE/'frontend'),'win32','x64'],APP)
+ run(['node','scripts/validate-frontend.cjs',str(STAGE/'frontend')],APP)
  run(['node','scripts/package.cjs'],APP)
- archive=APP/'release/PontoDocente-Windows-Independente-x64.zip'
- archive.with_suffix('.zip.sha256').write_text(hashlib.sha256(archive.read_bytes()).hexdigest()+'  '+archive.name+'\n')
- print('Pacote gerado. Homologar em Windows antes de distribuir para produção.')
+ if '--prepare-only' in sys.argv:
+  print('Aplicativo preparado. Execute smoke tests e archive.cjs para gerar a entrega.')
+  return
+ if sys.platform != 'win32':
+  raise RuntimeError('A pasta Windows foi preparada, mas os smoke tests precisam de Windows. Use windows-latest; o ZIP final não foi publicado.')
+ executable=APP/'release/PontoDocente-win32-x64/PontoDocente.exe'
+ run([str(executable),str(APP/'scripts/smoke.cjs')],APP,env={**os.environ,'ELECTRON_RUN_AS_NODE':'1'})
+ run(['node','scripts/smoke-gui.cjs'],APP)
+ run(['node','scripts/archive.cjs'],APP)
+ print('Pacote gerado após validar serviços e janela Electron. Homologar o uso com a equipe antes de produção.')
 if __name__=='__main__':
  try:
   main()

@@ -19,6 +19,10 @@ A senha normal não substitui a senha de aplicativo nessa integração SMTP.
 O acesso entre aplicativos é HTTPS com verificação do certificado exportado no JSON.
 Se o endereço do principal mudar, exporte e importe novamente a conexão.
 
+APARÊNCIA
+Em Configurações, escolha Sistema, Claro ou Escuro. O padrão acompanha o Windows.
+A interface e o banco local funcionam sem internet; envio de e-mail exige conexão.
+
 ANTES DE USAR COM DADOS REAIS
 Este pacote foi montado fora do Windows. A inicialização completa, OCR, envio e backup
 precisam ser homologados em uma máquina Windows 10/11 x64 com dados fictícios.

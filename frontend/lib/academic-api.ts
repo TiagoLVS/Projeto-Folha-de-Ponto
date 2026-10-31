@@ -1,3 +1,4 @@
+import { apiFetch } from './api-transport.ts';
 import { refreshSystemLease } from './system-lease.ts';
 import { setNetworkLock } from './network-lock.ts';
 import { academicTimeout, type AcademicSettings } from './academic-limits.ts';
@@ -15,7 +16,7 @@ const unexpected = () => new Error('O servidor retornou uma resposta inesperada.
 
 async function checkedResponse(path: string, options?: RequestInit) {
   if (options?.method && options.method !== 'GET' && !path.endsWith('/download-lote') && mutationsBlocked()) throw new Error('Sistema em uso por outro usuário.');
-  const response = await fetch(base + path, { cache: 'no-store', ...options, signal: options?.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(academicTimeout(path))]) : AbortSignal.timeout(academicTimeout(path)), headers: sessionHeaders(options?.headers) });
+  const response = await apiFetch(base + path, { cache: 'no-store', ...options, signal: options?.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(academicTimeout(path))]) : AbortSignal.timeout(academicTimeout(path)), headers: sessionHeaders(options?.headers) });
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);
     const detail = record(body) ? body.detail : undefined;

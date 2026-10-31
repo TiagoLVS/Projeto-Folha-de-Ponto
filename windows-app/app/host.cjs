@@ -13,13 +13,13 @@ async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,post
  const python=path.join(resources,'runtime','python','python.exe');
  const pgbin=path.join(resources,'runtime','pgsql','bin');const pgdata=path.join(folder,'postgres');
  const server=path.join(resources,'server');const entry=path.join(server,'runtime.py');
- const dbPort=await freePort(),apiPort=await freePort(),frontPort=await freePort();
+ const dbPort=await freePort(),apiPort=await freePort();
  const secretFile=path.join(folder,'banco.bin');
  let password;
  if(fs.existsSync(secretFile))password=await decrypt(fs.readFileSync(secretFile));
  else {password=randomBytes(32).toString('hex');fs.writeFileSync(secretFile,await encrypt(password),{mode:0o600});}
  const env={...process.env,DB_HOST:'127.0.0.1',DB_PORT:String(dbPort),DB_USER:'ponto',DB_NAME:'ponto_docente',DB_PASSWORD:password,
-  BACKEND_PORT:String(apiPort),BACKEND_URL:`http://127.0.0.1:${apiPort}`,PONTO_DATA_DIR:path.join(folder,'data'),
+  BACKEND_PORT:String(apiPort),BACKEND_URL:`http://127.0.0.1:${apiPort}`,PONTO_DATA_DIR:path.join(folder,'data'),PONTO_STATIC_FRONTEND:path.join(resources,'frontend'),
   EMAIL_CREDENTIALS_KEY_FILE:path.join(folder,'secrets','email.key'),PONTO_PG_DUMP:path.join(pgbin,'pg_dump.exe'),
   DIGEP_MODO_TESTE:'false',SMTP_HOST:'smtp.gmail.com',SMTP_PORT:'465',SMTP_SECURITY:'ssl',
   TESSERACT_CMD:path.join(resources,'runtime','tesseract','tesseract.exe'),TESSDATA_PREFIX:path.join(resources,'runtime','tesseract','tessdata'),OCR_LANG:'por',
@@ -31,8 +31,9 @@ async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,post
  }
  function run(command,args,timeout=120000){return new Promise((resolve,reject)=>{
   const item=child(command,args);const timer=setTimeout(()=>{item.kill();reject(new Error('Uma etapa de inicialização demorou além do esperado. Consulte os registros.'));},timeout);
+  let output='';item.stdout.on('data',chunk=>output+=chunk);
   item.once('error',()=>{clearTimeout(timer);reject(new Error('Não foi possível iniciar um componente. Extraia a pasta completa do aplicativo.'));});
-  item.once('exit',code=>{clearTimeout(timer);code===0?resolve():reject(new Error('Não foi possível preparar os serviços. Consulte os registros do aplicativo.'));});
+  item.once('exit',code=>{clearTimeout(timer);code===0?resolve(output):reject(new Error('Não foi possível preparar os serviços. Consulte os registros do aplicativo.'));});
  });}
  async function ready(port,pathname,item){
   for(let i=0;i<180;i++){
@@ -63,22 +64,25 @@ async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,post
   await run(python,[entry,'database']);
   const tlsFolder=path.join(folder,'certificado');
   await run(python,[entry,'certificate',tlsFolder,'localhost','127.0.0.1',os.hostname(),...addresses()]);
-  log('Iniciando o sistema…');
-  const backend=child(python,[entry,'serve']);await ready(apiPort,'/',backend);
-  const frontend=child(process.execPath,[path.join(resources,'frontend','server.js')],{ELECTRON_RUN_AS_NODE:'1',HOSTNAME:'127.0.0.1',PORT:String(frontPort),NODE_ENV:'production'});
-  await ready(frontPort,'/',frontend);
+  log('PostgreSQL ✓');
+  const languages=await run(env.TESSERACT_CMD,['--list-langs']);
+  if(!languages.split(/\r?\n/).some(line=>line.trim()==='por'))throw new Error('OCR português não foi encontrado. Extraia o pacote completo.');
+  log('OCR português ✓');
+  log('Iniciando backend e interface…');
+  const backend=child(python,[entry,'serve']);await ready(apiPort,'/_ponto/health',backend);await ready(apiPort,'/',backend);
+  log('Backend ✓ · Interface ✓');
   const cert=fs.readFileSync(path.join(tlsFolder,'cert.pem'));const pin=fingerprint(cert);
   gateway=https.createServer({cert,key:fs.readFileSync(path.join(tlsFolder,'key.pem')),minVersion:'TLSv1.2'},(request,response)=>{
    if(!privateAddress(request.socket.remoteAddress)){response.writeHead(403);return response.end('Acesso permitido somente na rede local.');}
    if(request.url==='/_ponto/status'){response.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});return response.end(JSON.stringify({application:'ponto-docente-undf',protocol:1}));}
    const headers={...request.headers};delete headers.connection;
-   const upstream=http.request({host:'127.0.0.1',port:frontPort,path:request.url,method:request.method,headers},remote=>{response.writeHead(remote.statusCode,remote.headers);remote.pipe(response);});
+   const upstream=http.request({host:'127.0.0.1',port:apiPort,path:request.url,method:request.method,headers},remote=>{response.writeHead(remote.statusCode,remote.headers);remote.pipe(response);});
    upstream.on('error',()=>{if(!response.headersSent)response.writeHead(502);response.end('O sistema está indisponível. Tente novamente.');});
    response.on('close',()=>upstream.destroy());request.pipe(upstream);
   });
   gateway.requestTimeout=960000;
   await new Promise((resolve,reject)=>{gateway.once('error',reject);gateway.listen(gatewayPort,'0.0.0.0',resolve);});
-  for(const item of [backend,frontend])item.on('exit',()=>{if(!closing){log('Um serviço foi encerrado. Feche e abra o aplicativo novamente.');gateway?.close();}});
+  for(const item of [backend])item.on('exit',()=>{if(!closing){log('Um serviço foi encerrado. Feche e abra o aplicativo novamente.');gateway?.close();}});
   return {url:`https://localhost:${gatewayPort}`,fingerprint:pin,exportConnection:()=>({url:`https://${addresses()[0]||os.hostname()}:${gatewayPort}`,fingerprint:pin}),stop};
  }catch(error){await stop();throw error;}
 }

@@ -8,6 +8,7 @@
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
+    "playwright-core": "1.63.0",
     "yazl": "3.3.1"
   }
 }

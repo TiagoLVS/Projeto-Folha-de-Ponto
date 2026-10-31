@@ -1,0 +1,41 @@
+/* Tokens compartilhados. O tema claro conserva a identidade e as superfícies existentes. */
+:root{color-scheme:light;--surface:#fff;--surface-soft:#f2f7fb;--surface-glass:#ffffffc9;--text-main:#203a54;--text-secondary:#536b80;--line:#d4e0ea;--accent-blue:#2468b3}
+:root.dark{color-scheme:dark;--background:#111c2b;--foreground:#e2ebf6;--card:#1b2c40;--card-foreground:#e2ebf6;--popover:#1b2c40;--popover-foreground:#e2ebf6;--primary:#74b7fa;--primary-foreground:#10243b;--secondary:#253b52;--secondary-foreground:#e2ebf6;--muted:#213449;--muted-foreground:#a5b9ce;--accent:#304963;--accent-foreground:#e2ebf6;--border:#38516a;--input:#47617b;--ring:#7cbbff;--glass:#1b2c40d9;--glass-border:#6b8caf65;--glass-shadow:0 16px 48px #0004,inset 0 1px #8aa9c933;--surface:#1b2c40;--surface-soft:#22364d;--surface-glass:#1b2c40df;--text-main:#e2ebf6;--text-secondary:#a5b9ce;--line:#38516a;--accent-blue:#8bc5ff}
+.theme-settings fieldset{display:flex;gap:24px;flex-wrap:wrap}.theme-settings legend{font-weight:600;margin-bottom:12px}.theme-settings label{display:flex;gap:8px;align-items:center;cursor:pointer}.theme-settings input{accent-color:var(--accent-blue)}
+.dark body{background:#111c2b;color:var(--text-main)}
+.dark body::before{background:radial-gradient(ellipse at 10% 8%,#204355,transparent 50%),radial-gradient(ellipse at 95% 10%,#213d67,transparent 50%),linear-gradient(135deg,#142638,#111c2b)}
+.dark :is(.floating-nav,.nav-account){background:linear-gradient(135deg,#26465cc9,#20374bd9);border-color:#718fac66;box-shadow:var(--glass-shadow)}
+.dark :is(.nav-brand strong,.nav-account,.page-heading h1,.profile-heading h1,.breadcrumb strong,.section-heading h2,.table-toolbar h2,.academic-panel h2,.calendar-detail h2){color:var(--text-main)}
+.dark .floating-nav .nav-segments button{background:#36597655;color:#c0d5eb;border-color:#6b8caf66;box-shadow:inset 0 1px #8aa9c933}
+.dark .floating-nav .nav-segments button[aria-current=page]{background:#385d7e;color:#b3daff;border-color:#7fadd6}
+.dark .floating-nav .nav-segments button:hover{background:#3a5d7a}
+.dark :is(.stat,.table-card,.academic-panel,.profile-heading,.sheet-summary,.uploaded-file-meta,.identified-panel,.send-month,.notification){background:var(--surface-glass);border-color:var(--line);box-shadow:0 8px 22px #0002;color:var(--text-main)}
+.dark :is(.stat strong,.stat p,.professor-cell strong,.profile-name h1,.sheet-summary strong,.uploaded-file-meta strong,.upload-dropzone strong,.send-month strong,.recipient-list strong,.audience-options strong){color:var(--text-main)}
+.dark :is(.breadcrumb,.workspace-footer,.professor-cell small,.stat span,.stat strong small,.result-count,.hours-cell,.table-footer,.section-heading p,.profile-name p,.academic-panel p,.academic-subtitle,.calendar-weekday,.professor-options small,.academic-empty,.edit-form label,.email-note,.recipient-list small,.send-month small,.upload-toolbar-copy,.uploaded-file-meta span,.upload-dropzone small,.upload-dropzone>span,.sheet-summary span,.loading-copy>p,.back-button){color:var(--text-secondary)}
+.dark :is(.stat-icon,.stat-icon.soft,.stat-icon.neutral,.avatar,.dialog-icon,.uploaded-file-icon,.upload-dropzone-icon){background:#2a4661;border-color:#496a8c;color:#b2d9ff;box-shadow:none}
+.dark :is(th,.table-toolbar){background:#23374d;color:#bfd0e3;border-color:var(--line)}
+.dark :is(td,tr,.table-footer,.table-toolbar,.table-scroll,.calendar-detail,.import-report,.identified-panel,.edit-form-footer,.download-row){border-color:var(--line)}
+.dark tbody tr:hover,.dark .download-row:hover{background:#29445e}
+.dark :is(input:not([type=checkbox]):not([type=radio]),select,textarea,.search-field,.month-control,.editable-table input,.identified-panel input,.identified-panel select){background:var(--surface-soft)!important;color:var(--text-main)!important;border-color:#526d88!important;color-scheme:dark}
+.dark .edit-form [data-slot=native-select]{background:var(--surface-soft)!important;color-scheme:dark}
+.dark :is(input,textarea)::placeholder{color:#9fb1c5;opacity:1}
+.dark :is([data-slot=dialog-content],[data-slot=sheet-content],.send-dialog,.edit-sheet){background:var(--surface)!important;color:var(--text-main)!important;border-color:var(--line)!important;box-shadow:0 20px 70px #0008}
+.dark :is([data-slot=dialog-description],[data-slot=sheet-description]){color:var(--text-secondary)}
+.dark [data-slot=button][data-variant=outline],.dark [data-slot=button][data-variant=secondary]{background:#263e56;border-color:#56718d;color:var(--text-main)}
+.dark [data-slot=button]:hover{filter:brightness(1.12)}
+.dark :is(.icon-button,.text-action,.table-toolbar button,.row-actions button){color:var(--accent-blue)}
+.dark .icon-button:hover,.dark .text-action:hover{background:#304e6a}
+.dark .calendar-day{background:var(--surface);border-color:var(--line);color:var(--text-main)}
+.dark .calendar-day.is-weekend{background:#162638}.dark .calendar-day.is-selected{background:#294862;outline-color:#90c7ff}.dark .calendar-day:hover{border-color:#90c7ff}
+.dark .event-tag{background:#344c62;color:#e1eaf4}.dark .type-FERIADO{background:#65383f;color:#ffced2}.dark .type-RECESSO{background:#274975;color:#cfe3ff}.dark .type-PONTO_FACULTATIVO{background:#594c2a;color:#ffe3a0}
+.dark .status-done{background:#214f47;color:#b2e5d4}.dark .status-progress{background:#294e72;color:#c1dfff}.dark .status-empty{background:#34485d;color:#d0dce8}.dark .status-error,.dark .form-error{background:#57323c;color:#ffd2d5;border-color:#98606b}
+.dark .pending-alert{background:#4b432c;border-color:#8b7850;color:#f4dfad}.dark .pending-alert :is(p,strong,button){color:#f4dfad}
+.dark .audience-options label{border-color:var(--line)}.dark .audience-options label:has([data-state=checked]){background:#304d69;border-color:#8bb8e1}
+.dark :is(.upload-dropzone,.sheet-preview,.loading-screen){background:#162638;border-color:var(--line);color:var(--text-secondary)}
+.dark .upload-dropzone:hover{background:#243d55;border-color:#80b7e7}.dark .loading-copy h1{color:var(--text-main)}
+.dark .loading-track{background:#38516a}.dark .loading-track span{background:linear-gradient(90deg,#5a9fe3,#b4e6ff)}
+.dark :is(.table-scroll,.edit-sheet,.send-dialog,.recipient-list,.download-list){scrollbar-color:#58728d #182a3d}
+.dark *:focus-visible{outline-color:#9dceff}
+.dark :is(.page-heading,.profile-heading) p:not(.eyebrow){color:var(--text-secondary)}
+.dark .eyebrow{color:#aac9e8!important}
+.dark [data-slot=button][data-variant=default]{background:linear-gradient(135deg,#91cbff,#6caaf0);color:#10243b;border-color:#b8ddff;box-shadow:inset 0 1px #ffffff55,0 6px 18px #0002}
