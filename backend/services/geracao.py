@@ -1,3 +1,4 @@
+from backend.paths import DATA
 from backend.config import MAX_GENERATED_ZIP_BYTES
 from backend.models.calendario import DownloadLotePayload
 import hashlib
@@ -14,7 +15,7 @@ from backend.models.calendario import GeracaoPayload
 from backend.services.modelo_folha import renderizar_pdf, MODELO_ID
 from backend.services.folhas_recebidas import sanitizar_nome
 
-PASTA_GERADAS = Path(__file__).resolve().parents[2] / 'data' / 'folhas' / 'geradas'
+PASTA_GERADAS = DATA / 'folhas' / 'geradas'
 logger = logging.getLogger(__name__)
 
 

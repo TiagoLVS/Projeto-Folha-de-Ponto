@@ -1,4 +1,5 @@
 """Armazenamento transacional de folhas recebidas e revisões preservadas."""
+from backend.paths import DATA
 import hashlib
 import re
 import unicodedata
@@ -13,7 +14,7 @@ from psycopg.types.json import Jsonb
 from backend.database import repository
 from backend.ocr.reader import executar_ocr
 
-PASTA_FOLHAS = Path(__file__).resolve().parents[2] / 'data' / 'folhas'
+PASTA_FOLHAS = DATA / 'folhas'
 
 
 def sanitizar_nome(nome):

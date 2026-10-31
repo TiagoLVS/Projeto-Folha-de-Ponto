@@ -53,3 +53,7 @@ A migração **005_envio_modelos.sql** permite registrar recebidas e geradas na 
 # Reenvio explícito de modelos em branco
 
 No diálogo de envio em Gerar folhas, marque **Incluir folhas já enviadas (enviar novamente)** para autorizar outro envio. `POST /folhas/geradas/enviar-lote` aceita `reenviar: true`; por padrão, continua ignorando documentos já enviados. Uma nova confirmação usa nova chave de idempotência, enquanto Continuar envio conserva a chave e não repete mensagens concluídas. Envios PENDENTE continuam bloqueados mesmo com autorização de reenvio. Cada reenvio cria um novo registro no histórico, sem migração adicional.
+
+## Conta por computador no modo real
+
+Antes de enviar, conectar uma conta por `POST /emails/conta`, com e-mail e senha de aplicativo/SMTP. GET consulta o estado e DELETE desconecta. O remetente é o usuário conectado neste cliente. O servidor mantém as credenciais cifradas no banco até desconectar. `X-Email-Client-Id` identifica o cliente persistente, separado da sessão de edição. Sem conexão, endpoints de envio retornam 409 antes de reservar idempotência ou tentar SMTP. No modo de teste, a conexão não é exigida. [Fluxo completo](CONTA-EMAIL.md).

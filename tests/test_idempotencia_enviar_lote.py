@@ -9,6 +9,7 @@ from backend.database.repository import payload_hash_for
 
 class TestIdempotenciaEnviarLote(unittest.TestCase):
     def setUp(self):
+        context=patch.dict('os.environ',DIGEP_MODO_TESTE='true');context.start();self.addCleanup(context.stop)
         self.client = TestClient(app)
         context=patch('backend.services.lease.iniciar_mutacao',return_value=None);context.start();self.addCleanup(context.stop)
         context=patch('backend.api.validar_folha_envio');context.start();self.addCleanup(context.stop)

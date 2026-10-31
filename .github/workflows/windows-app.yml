@@ -1,0 +1,42 @@
+name: Pacote Windows independente
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Instalar ferramentas de build
+        shell: pwsh
+        run: |
+          npm install --global pnpm@11.25.0
+          pnpm --dir frontend install --frozen-lockfile
+          npm --prefix windows-app ci
+      - name: Montar aplicativo
+        shell: pwsh
+        run: npm --prefix windows-app run build
+      - name: Testar rede e configuração
+        shell: pwsh
+        run: npm --prefix windows-app test
+      - name: Conferir runtimes e dados temporários
+        shell: pwsh
+        run: |
+          $env:ELECTRON_RUN_AS_NODE='1'
+          $scriptPath = (Resolve-Path '.\windows-app\scripts\smoke.cjs').Path
+          $process = Start-Process -FilePath '.\windows-app\release\PontoDocente-win32-x64\PontoDocente.exe' -ArgumentList ('"' + $scriptPath + '"') -NoNewWindow -Wait -PassThru
+          exit $process.ExitCode
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PontoDocente-Windows-Independente-x64
+          path: |
+            windows-app/release/*.zip
+            windows-app/release/*.sha256

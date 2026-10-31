@@ -80,3 +80,12 @@ frontend/tsconfig.tsbuildinfo
 
 # Controle de inicialização local
 .iniciar.lock
+
+
+# Chave local das contas SMTP (guardar backup separado do banco).
+/.secrets/
+
+# Pacote Windows: runtimes, dependências e artefatos gerados
+/windows-app/.cache/
+/windows-app/staging/
+/windows-app/release/

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { EmailAccount } from "@/components/email-account";
 import { SystemLock } from "@/components/system-lock";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -23,7 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body className="antialiased"><SystemLock />{children}<Toaster position="bottom-right" richColors /></body>
+      <body className="antialiased"><SystemLock /><EmailAccount />{children}<Toaster position="bottom-right" richColors /></body>
     </html>
   );
 }

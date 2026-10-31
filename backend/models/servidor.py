@@ -20,6 +20,16 @@ class ServidorPayload(BaseModel):
     department: str = Field(default='', max_length=200)
     workload: int | None = Field(default=None, strict=True)
     acumula_cargo: bool = Field(default=False, strict=True)
+    ua: str | None = Field(default=None, max_length=200)
+    cargo: str | None = Field(default=None, max_length=200)
+    padrao: str | None = Field(default=None, max_length=200)
+    funcao: str | None = Field(default=None, max_length=200)
+    exercicio: str | None = Field(default=None, max_length=300)
+
+    @field_validator('ua', 'cargo', 'padrao', 'funcao', 'exercicio')
+    @classmethod
+    def dado_funcional(cls, value):
+        return value or None
 
     @field_validator('workload')
     @classmethod

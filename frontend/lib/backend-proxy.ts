@@ -4,7 +4,7 @@ import { academicTimeout } from './academic-limits.ts';
 export async function proxyBackend(path: string, request?: Request, binary = false) {
   const method = request?.method ?? 'GET';
   const headers = new Headers();
-  for (const name of ['authorization', 'cookie', 'idempotency-key', 'if-match', 'x-client-id']) {
+  for (const name of ['authorization', 'cookie', 'idempotency-key', 'if-match', 'x-client-id', 'x-email-client-id']) {
     const value = request?.headers.get(name);
     if (value) headers.set(name, value);
   }

@@ -15,7 +15,7 @@ export class ApiError extends Error {
 /** Shared transport: no cached business records; only the backend decides locks. */
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = options.method ?? 'GET';
-  if (!['GET', 'HEAD'].includes(method) && !path.startsWith('/api/system/lock') && mutationsBlocked()) {
+  if (!['GET', 'HEAD'].includes(method) && !path.startsWith('/api/system/lock') && path!=='/api/email-account' && mutationsBlocked()) {
     throw new ApiError('Alterações indisponíveis enquanto o sistema estiver bloqueado.', 423);
   }
   const headers = sessionHeaders(options.headers);

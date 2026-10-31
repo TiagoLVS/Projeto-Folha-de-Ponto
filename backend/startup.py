@@ -11,7 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = [('002_calendario', '002_atualizacao_calendario.sql'),
               ('003_integracao', '003_integracao_sistema.sql'),
               ('004_refinamentos', '004_refinamentos.sql'),
-              ('005_envio_modelos', '005_envio_modelos.sql')]
+              ('005_envio_modelos', '005_envio_modelos.sql'),
+              ('006_dados_funcionais', '006_dados_funcionais_servidor.sql'),
+              ('007_conta_email', '007_conta_email.sql')]
 
 
 def verificar_portas():
@@ -48,7 +50,7 @@ def verificar_banco(migrar=False):
         versions = {row[0] for row in conn.execute('SELECT versao FROM schema_migration')} if marker else set()
         pending = [(version, name) for version, name in MIGRATIONS if version not in versions]
         if not pending:
-            print('PostgreSQL conectado. Migrações atualizadas até 005.')
+            print('PostgreSQL conectado. Migrações atualizadas até 007.')
             return 0
         print('Migrações pendentes: ' + ', '.join(name for _, name in pending), file=sys.stderr)
         if not migrar:

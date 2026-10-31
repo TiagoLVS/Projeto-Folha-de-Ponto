@@ -6,6 +6,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from backend.database import repository
 from backend.services.ler_planilha import ler_planilha
+from backend.services.ler_planilha import COLUNAS_FUNCIONAIS
 
 CAMPOS = ('nome', 'matricula', 'cpf', 'email', 'carga_horaria', 'acumula_cargo')
 
@@ -20,7 +21,7 @@ def classificar(cur, value):
         return 'ignorado', 'CPF já pertence a outra matrícula.', False
     if current is None:
         return 'novo', 'Matrícula ainda não cadastrada.', True
-    if all(current[k] == value[k] for k in CAMPOS):
+    if all(current[k] == value[k] for k in (*CAMPOS, *(k for k in COLUNAS_FUNCIONAIS.values() if k in value))):
         return 'ignorado', 'Cadastro já possui os mesmos dados.', True
     return 'atualizado', 'Dados da matrícula serão atualizados; departamento será preservado.', True
 
@@ -33,7 +34,8 @@ def preview(path):
             value = {**raw, 'email': raw['email_pessoal']}
             action, reason, valid = classificar(cur, value)
             rows.append(dict(linha=raw['linha'],nome=value['nome'],matricula=value['matricula'],cpf=value['cpf'],
-                email=value['email'],acao=action,motivo=reason,valido=valid,dados=value))
+                email=value['email'],acao=action,motivo=reason,valido=valid,dados=value,
+                **{k:value[k] for k in COLUNAS_FUNCIONAIS.values() if k in value}))
         for raw in data['invalidos']:
             rows.append(dict(linha=raw['linha'],nome=raw.get('nome',''),matricula=raw.get('matricula',''),cpf=raw.get('cpf',''),
                 acao='ignorado',motivo='; '.join(raw['erros']),valido=False))
@@ -62,10 +64,7 @@ def confirmar(token):
                 value = row['dados']
                 action, reason, valid = classificar(cur, value)
                 if valid and action in ('novo','atualizado'):
-                    cur.execute('''INSERT INTO servidor(nome,matricula,cpf,email,carga_horaria,acumula_cargo)
-                        VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(matricula) DO UPDATE SET nome=EXCLUDED.nome,
-                        cpf=EXCLUDED.cpf,email=EXCLUDED.email,carga_horaria=EXCLUDED.carga_horaria,acumula_cargo=EXCLUDED.acumula_cargo''',
-                        tuple(value[k] for k in CAMPOS))
+                    repository.gravar_servidor_importado(cur, value)
             result[{'novo':'novos','atualizado':'atualizados','ignorado':'ignorados'}[action]] += 1
             result['detalhes'].append(dict(linha=row['linha'],acao=action,motivo=reason))
         cur.execute('UPDATE importacao_servidor_preview SET confirmado_em=clock_timestamp(),resultado=%s WHERE token=%s', (Jsonb(result), token))

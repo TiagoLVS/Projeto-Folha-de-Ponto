@@ -11,3 +11,5 @@ openpyxl
 httpx2
 
 xlrd==2.0.2
+
+cryptography>=46,<47

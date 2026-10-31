@@ -1,134 +1,68 @@
-# Folha de Ponto — UnDF
+# Ponto Docente · UnDF — Windows
 
-Cadastro de servidores com CPF, importação Excel em duas etapas, recebimento de PDFs, identificação por página, conferência, calendário acadêmico, geração institucional de folhas e envio SMTP com histórico. Frontend React/Next.js e FastAPI utilizam PostgreSQL e arquivos no servidor para reconstruir o histórico em qualquer navegador.
+Aplicativo para cadastrar professores, gerar folhas de ponto, conferir documentos recebidos e enviar as folhas por e-mail, preservando o visual do sistema.
 
-Novos PDFs gerados usam nomes como `Ana_Silva-2026-10.pdf`: somente nome e competência. Versões e homônimos permanecem em pastas distintas; no ZIP, nomes repetidos ficam em subpastas para evitar sobrescritas. O mesmo nome é utilizado no download, no ZIP e no anexo do e-mail. Documentos antigos conservam seus nomes no armazenamento; ao enviar por e-mail, o anexo também recebe nome do servidor e competência, mesmo que o arquivo original tenha ID/UUID.
+## Abrir o aplicativo
 
-## Pré-requisitos
+1. Extraia a pasta completa do arquivo `PontoDocente-Windows-Independente-x64.zip`.
+2. Abra **PontoDocente.exe**. Não execute diretamente de dentro do ZIP.
+3. Na primeira abertura, escolha o tipo de instalação.
 
-- Python 3.12+ e `venv`/pip.
-- Node.js 22.13+ (recomendado 24) e pnpm 11.25.0.
-- PostgreSQL 17+ em UTF-8 (testes com 18).
-- Tesseract com idioma português para PDFs digitalizados. PDFs com texto digital utilizam primeiro esse conteúdo.
-- Linux/Bash, `setsid`, `flock` e `sha256sum` para `iniciar.sh`. Em outros sistemas, use os comandos separados abaixo.
+O pacote inclui os componentes de banco de dados, processamento de documentos, OCR e interface. Os usuários não precisam instalar Python, Node.js ou PostgreSQL, nem abrir um terminal.
 
-Não existe distribuição portátil sem instalação. LibreOffice não é necessário na aplicação: os PDFs são desenhados com PyMuPDF. `.xls` de servidores usa a dependência explícita `xlrd`; calendário continua `.xlsx`.
+**Situação do pacote:** gerado fora do Windows. Ainda precisa ser homologado em Windows 10/11 x64 antes de uso em produção, incluindo inicialização, reinicialização, OCR, compartilhamento e envio de e-mail. O executável não possui assinatura digital de editor.
 
-## Preparar banco e ambiente
+## Computador principal
 
-Na pasta que contém `backend/`, `frontend/` e `iniciar.sh`, crie `.env` a partir de `.env.example` e `frontend/.env.local` a partir de `frontend/.env.local.example`, **somente se ainda não existirem**. Configure DB_HOST, DB_PORT, DB_NAME, DB_USER e DB_PASSWORD. `BACKEND_URL` do frontend aponta normalmente para `http://127.0.0.1:8000`.
+Escolha **Este é o computador principal** em apenas uma máquina. O aplicativo prepara um banco novo e inicia os serviços automaticamente.
 
-Banco **novo e vazio**, usando o usuário proprietário:
+- Mantenha o aplicativo aberto e o computador ligado durante o uso da equipe.
+- Permita acesso na **rede privada** quando o Firewall do Windows solicitar.
+- No menu **Aplicativo → Exportar conexão da equipe**, salve o arquivo JSON e entregue-o às outras máquinas.
+- Fechar o aplicativo principal encerra os serviços e interrompe o acesso da equipe, preservando os dados.
 
-```bash
-psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 --single-transaction -f database/folha_pontos.sql
-```
+O banco e os PDFs existentes em outra instalação não são copiados automaticamente. Para transferi-los, o responsável precisa restaurar um backup e ajustar os caminhos dos documentos. Não distribua o banco antigo dentro do ZIP.
 
-Banco **existente**: faça backup com `pg_dump -Fc` e copie também `data/folhas/`. Aplique somente as migrações, nesta ordem:
+## Demais computadores
 
-```bash
-psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/001_idempotency_request.sql
-psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/002_atualizacao_calendario.sql
-psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/003_integracao_sistema.sql
-psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/004_refinamentos.sql
-psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/005_envio_modelos.sql
-```
+Abra o mesmo executável, escolha **Conectar ao computador principal** e selecione o arquivo JSON fornecido pelo responsável. A conexão fica salva para as próximas aberturas.
 
-O SQL completo é exclusivo para instalações novas. As migrações preservam cadastros, CPF nulo legado, folhas, envios, calendário e modelos gerados. O script de inicialização **não aplica SQL automaticamente**. Detalhes e verificação em [Alterações do banco](docs/ALTERACOES-BANCO.md).
+Todos acessam os mesmos cadastros, PDFs e histórico. O banco não é duplicado nos computadores da equipe. A comunicação usa HTTPS, com certificado verificado pelo aplicativo a partir do arquivo de conexão. Se o endereço da máquina principal mudar, exporte e importe a conexão novamente.
 
-## Iniciar
+Não há login de acesso ao sistema. O compartilhamento é destinado à rede local privada e confiável da equipe. O controle de edição existente continua evitando alterações concorrentes.
 
-```bash
-bash iniciar.sh
-```
+## Conectar Gmail
 
-O script cria o ambiente Python, instala dependências quando o arquivo de requisitos muda, atualiza dependências frontend quando necessário, verifica banco/migração, avisa sobre Tesseract e inicia os serviços. Falha do uvicorn é exibida; quando um serviço termina, o outro é encerrado. Ctrl+C encerra somente os grupos de processos criados pelo script.
+Na tela **Conectar conta de e-mail**, informe o endereço completo e uma **senha de aplicativo**. A senha normal da conta não é utilizada por esta integração SMTP.
 
-Se o banco estiver desatualizado, o script informa quais migrações faltam. No terminal interativo, pede autorização antes de aplicá-las. Após backup, você também pode autorizar explicitamente:
+A conta Google precisa ter verificação em duas etapas. Consulte as [instruções oficiais para senhas de aplicativo](https://support.google.com/accounts/answer/185833?hl=pt-BR). Restrições da organização podem impedir essa opção.
 
-```bash
-bash iniciar.sh --migrar
-```
+- Cada computador/perfil mantém sua própria conta conectada até **Desconectar e-mail**.
+- A senha é armazenada cifrada no banco do computador principal.
+- Conectar verifica a conta, mas não envia mensagem.
+- Este pacote inicia em modo real: os envios vão aos endereços cadastrados.
+- Falhas de internet, tempo de espera, certificado e autenticação têm mensagens distintas.
 
-Isso aplica somente as migrações pendentes, sem recriar o banco. Jornadas incompatíveis com 20h/40h interrompem a migração e precisam de correção manual. Sem confirmação ou `--migrar`, o banco não é alterado. Para apenas diagnosticar dependências e banco:
+Salvar a conta não dispensa conexão com a internet nem autorização do Gmail. A instalação Windows usa `smtp.gmail.com`, porta `465`, SSL.
 
-```bash
-bash iniciar.sh --verificar
-```
+## Folhas de ponto
 
-A reinicialização após Ctrl+C aceita conexões antigas em TIME_WAIT; isso não indica um servidor ativo. Portas realmente ocupadas são informadas sem encerrar processos existentes. Para escolher outras portas, execute `BACKEND_PORT=8001 FRONTEND_PORT=5174 bash iniciar.sh`; o proxy acompanha automaticamente a porta do backend. As URLs só são exibidas como prontas depois que ambos os serviços responderem.
+- **Folhas em branco:** gerar PDFs, consultar versões, baixar e enviar por e-mail.
+- **Folhas preenchidas:** adicionar PDFs, conferir o vínculo e acompanhar pendências.
+- **Professores:** cadastrar, editar, excluir ou importar planilhas.
+- **Calendário:** cadastrar datas ou importar o calendário acadêmico.
+- **E-mails:** consultar destinatários, resultados e reenvios.
 
-Frontend: http://localhost:5173. Backend: http://127.0.0.1:8000. Swagger: http://127.0.0.1:8000/docs.
+## Dados, backup e atualização
 
-Para iniciar separadamente:
+Os dados do principal ficam em `%APPDATA%\PontoDocenteUnDF\principal`. Não coloque a subpasta `postgres` em uma pasta de rede.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r backend/requirements.txt
-python -m uvicorn backend.api:app --port 8000
-```
+Para backup completo, feche o aplicativo principal e copie a pasta `principal` inteira. Preserve `data`, `postgres`, `secrets`, `certificado`, `backups` e `banco.bin`. A proteção de `banco.bin` depende do usuário do Windows; para migrar para outro usuário/computador, use uma transferência técnica por `pg_dump`/`pg_restore` e revise os caminhos dos PDFs.
 
-Em outro terminal:
+Atualize somente a pasta extraída do programa. As migrações do banco privado são precedidas por um dump na pasta `backups`. Não substitua ou apague os dados do perfil do Windows durante uma atualização.
 
-```bash
-cd frontend
-pnpm install --frozen-lockfile
-pnpm dev
-```
+## Suporte
 
-## Uso
+Use **Aplicativo → Abrir pasta de suporte**. Os registros do principal ficam em `principal\logs`. Informe a mensagem apresentada; não envie senhas nem arquivos privados.
 
-- **Servidores:** carga horária selecionável de **20h ou 40h**, acumulação **Sim/Não**, cadastro/edição com CPF de 11 dígitos, aceitando máscara. Cadastro novo exige CPF; legados sem CPF permanecem editáveis. CPF e matrícula são únicos. Busca aceita nome, matrícula e CPF. Exclusão de servidor com vínculos retorna 409.
-- **Importar Excel:** `.xls` ou `.xlsx`, até 15 MB, com Nome, Matrícula, CPF, E-mail, Carga Horária e Acumula cargo (Sim/Não). Departamento não é obrigatório. A prévia não altera cadastros; a confirmação usa token de 15 minutos e Idempotency-Key. `20h`/`40h` viram inteiros; Sim/Não/Nao viram booleanos. Matrícula identifica atualizações e CPF de outra matrícula é conflito.
-- **Folhas recebidas:** até 20 PDFs por lote na interface, com servidor/competência por arquivo e resultado individual. Somente PDF com MIME application/pdf, assinatura e conteúdo válidos, até 15 MB por arquivo. Falha de um item não cancela os demais. JPG/PNG não são aceitos no fluxo atual.
-- **Duplicidade:** sem autorização, retorna 409. Substituir preserva a revisão anterior como `_OLD_AAAAMMDD-HHMMSS.pdf` e cria outra folha em revisão, sem confirmação ou envio herdado. O original ativo fica em `data/folhas/Folhas_AAAA-MM/Nome_do_servidor-AAAA-MM.pdf`.
-- **Histórico:** folhas, resultados de OCR, confirmação e último envio vêm do servidor. Folhas antigas sem vínculo podem ser conferidas na seção de pendentes. Remover uma folha retira-a do histórico ativo e preserva arquivo/histórico de revisão.
-- **PDF multipágina:** processar identifica cada página isoladamente. Candidatas, duplicidades e páginas ainda não importadas persistem no banco e aparecem na interface. Importe cada página com vínculo conferido; substituir exige nova autorização. O PDF completo permanece preservado.
-- **Calendário:** visualização mensal, filtros, CRUD e importação `.xlsx` com Data e Especificação ou **PDF**. PDF digital usa texto; páginas escaneadas usam Tesseract automaticamente. A prévia PDF exige conferência/confirmar antes de gravar datas; relatório com página, origem e inválidos. Para trocar um calendário inteiro, selecione o ano e marque **Substituir calendário de AAAA** antes de enviar o arquivo; confira a prévia e confirme a substituição. Outros anos e PDFs existentes são preservados. O contrato único é `/datas-especiais`.
-- **Gerar folhas:** botão **Gerar folhas** na área principal. Escolha competência/professores, gere individualmente ou em lote de **até 500**, autorize novas versões e consulte/baixe PDF ou ZIP do histórico. Servidores com PDF já gerado na competência saem da seleção e continuam no histórico para download; outra versão exige a opção explícita. O modelo `institucional-v1` segue o DOCX de referência e não imprime CPF. UA, cargo, padrão, função e exercício ficam vazios quando não possuem fonte no cadastro. Departamento não é usado como UA.
-- **Modelos em branco por e-mail:** em Gerar folhas, use **Enviar todas por e-mail** e confirme o lote. Cada servidor recebe sua versão mais recente da competência, com progresso, histórico e reenvio de falhas, sem abrir os PDFs e sem OCR. Exige migração 005 e SMTP configurado.
-- **Envios de folhas recebidas:** checkbox individual, seleção de aptos e filtro dos ainda não enviados. O backend exige vínculo, confirmação, OCR OK, arquivo presente e e-mail válido. O histórico permite filtrar nome/matrícula/CPF/status/competência e selecionar erros para reenvio idempotente.
-- **Uso compartilhado:** cada sessão adquire um lease PostgreSQL, renovado periodicamente. Outro cliente mantém consultas e tem mutações bloqueadas; o lease expira se a sessão desaparecer. O UUID da sessão não é autenticação.
-
-## SMTP
-
-Compatibilidade Gmail: `DIGEP_EMAIL` e `DIGEP_SENHA_APP` continuam funcionando. Para servidor institucional:
-
-```env
-SMTP_HOST=smtp.exemplo.com
-SMTP_PORT=587
-SMTP_SECURITY=starttls
-SMTP_USER=conta@exemplo.com
-SMTP_PASSWORD=senha_configurada_localmente
-DIGEP_EMAIL=remetente@exemplo.com
-DIGEP_MODO_TESTE=true
-```
-
-Use `ssl`/465 ou `starttls`/587 conforme o provedor. SMTP_USER/SMTP_PASSWORD vazios usam as credenciais antigas. `DIGEP_MODO_TESTE=true` envia **de verdade** ao remetente; não é uma simulação. Confirmar uma folha recebida tenta enviar automaticamente; gerar um modelo em branco não envia. Senhas ficam apenas no `.env`, fora do versionamento. Reinicie o backend ao alterar configuração.
-
-## Testes e documentação
-
-```bash
-python -m unittest discover -s tests -v
-cd frontend
-pnpm test
-pnpm exec tsc --noEmit --incremental false
-pnpm lint
-pnpm build
-```
-
-Para integração/migrações, configure `FOLHA_TEST_DSN` com um banco de testes. A CI instala Tesseract/português antes dos testes, sem baixar modelos durante sua execução. Os testes criam/removem schemas exclusivos; sem a variável, essa parte é explicitamente ignorada. Testes SMTP usam simulações e não enviam mensagens reais. A CI executa Python/PostgreSQL, frontend, TypeScript, lint e build.
-
-- [Integração do frontend](frontend/INTEGRACAO-FRONTEND.md)
-- [Banco e migrações](docs/ALTERACOES-BANCO.md)
-- [Upload, versões e OCR](docs/FLUXO-DOCUMENTOS.md)
-- [Contrato de envio e histórico](docs/API-ENVIO.md)
-- [Calendário e modelo institucional](docs/CALENDARIO-GERACAO.md)
-- [Relatório desta integração](docs/RELATORIO-INTEGRACAO.md)
-
-## Refinamentos e limites
-
-O backend publica os limites em GET /folhas/configuracao. Configure MAX_GENERATION_BATCH=500, MAX_GENERATED_DOWNLOAD_BATCH=500 e MAX_GENERATED_ZIP_BYTES=262144000 no .env. ZIP padrão: 500 arquivos e 250 MiB; geração sequencial tem resultados individuais, sem carregar o lote de PDFs em RAM. A interface não trunca silenciosamente seleções acima do limite. Prazos de geração/ZIP/OCR estão em [Calendário e geração](docs/CALENDARIO-GERACAO.md).
-
-Bancos existentes também precisam da **004_refinamentos.sql**. Ela lista jornadas antigas incompatíveis e interrompe sem converter/apagar dados. Corrija manualmente com base nos dados corretos e reaplique. Valores NULL legados são preservados; cadastros novos exigem 20h/40h. [Relatório dos refinamentos](docs/RELATORIO-REFINAMENTOS.md).
+O pacote para entrega fica em `windows-app/release/`, acompanhado de um arquivo SHA-256. [Documentação de montagem e testes](docs/WINDOWS-EMPACOTAMENTO.md).

@@ -41,7 +41,7 @@ export function GeneratedEmailBatch({ month, selectedDocumentIds, disabled }: { 
       {loading && <p role="status">Consultando destinatários…</p>}
       {error && <p role="alert" className="form-error">{error}</p>}
       {preview && <><label className="flex items-center gap-2"><input type="checkbox" checked={resend} disabled={sending || !!progress || completed} onChange={e=>setResend(e.target.checked)} />Incluir folhas já enviadas (enviar novamente)</label>{resend && <p>Ao confirmar, os servidores selecionados receberão novamente suas folhas, mesmo que já tenham sido enviadas.</p>}<p>{targets.length} folhas para enviar · {preview.documentos.length-targets.length} já enviadas, em processamento ou indisponíveis.</p>
-        {!preview.configurado && <p role="alert">Configure o remetente e a senha SMTP no .env e reinicie o backend para enviar.</p>}
+        {!preview.configurado && <p role="alert">Conecte uma conta de e-mail para enviar as folhas. Se o sistema estiver em modo de teste, procure o responsável pela configuração.</p>}
         {preview.configurado && preview.modo_teste && <p role="status">Modo de teste: as mensagens serão enviadas para {preview.destinatario_teste}, em vez dos servidores.</p>}
         <details><summary>Destinatários e documentos</summary><ul>{preview.documentos.map(d=><li key={d.id_documento}>{d.nome} · {d.email || 'Sem e-mail'} · versão {d.versao}{d.motivo ? ` · ${d.motivo}` : ''}</li>)}</ul></details>
         {!targets.length && <p>Nenhuma folha pendente de envio nesta seleção. Confira os modelos e o histórico de e-mails.</p>}

@@ -11,7 +11,7 @@ class ConflitoGeracao(ValueError):
 
 def preparar_geracao(cur, payload):
     # Serializa versões concorrentes do mesmo professor, inclusive a primeira.
-    cur.execute('SELECT id_servidor, nome, matricula, departamento, carga_horaria FROM servidor WHERE id_servidor=%s FOR UPDATE', (payload.id_servidor,))
+    cur.execute('SELECT id_servidor, nome, matricula, departamento, carga_horaria, ua, cargo, padrao, funcao, exercicio FROM servidor WHERE id_servidor=%s FOR UPDATE', (payload.id_servidor,))
     professor = cur.fetchone()
     if not professor:
         raise LookupError('Professor não encontrado.')

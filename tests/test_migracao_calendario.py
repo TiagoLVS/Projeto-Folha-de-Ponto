@@ -12,7 +12,7 @@ import tempfile
 
 FULL = Path('database/folha_pontos.sql').read_text()
 OLD = Path('tests/fixtures/schema_anterior_integracao.sql').read_text()
-MIGRATION = Path('database/migrations/002_atualizacao_calendario.sql').read_text() + '\n' + Path('database/migrations/003_integracao_sistema.sql').read_text() + '\n' + Path('database/migrations/004_refinamentos.sql').read_text() + '\n' + Path('database/migrations/005_envio_modelos.sql').read_text()
+MIGRATION = Path('database/migrations/002_atualizacao_calendario.sql').read_text() + '\n' + Path('database/migrations/003_integracao_sistema.sql').read_text() + '\n' + Path('database/migrations/004_refinamentos.sql').read_text() + '\n' + Path('database/migrations/005_envio_modelos.sql').read_text() + '\n' + Path('database/migrations/006_dados_funcionais_servidor.sql').read_text() + '\n' + Path('database/migrations/007_conta_email.sql').read_text()
 
 
 @unittest.skipUnless(os.getenv('FOLHA_TEST_DSN'), 'Defina FOLHA_TEST_DSN para um banco descartável.')

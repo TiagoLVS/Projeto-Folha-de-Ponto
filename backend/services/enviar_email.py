@@ -10,6 +10,7 @@ from pathlib import Path
 
 from datetime import datetime
 from email.message import EmailMessage
+from backend.services import conta_email
 
 
 # ============================================================
@@ -59,6 +60,10 @@ def carregar_configuracao_email():
     variáveis de ambiente.
     """
 
+    if not conta_email.modo_teste() and conta_email.CLIENTE_HTTP.get() is not None:
+        conta=conta_email.obter()
+        if not conta:raise RuntimeError('Conecte sua conta de e-mail para enviar folhas.')
+        return conta.email,conta.senha,False
     email_remetente = os.getenv("DIGEP_EMAIL") or os.getenv("SMTP_USER")
     senha_app = os.getenv("SMTP_PASSWORD") or os.getenv("DIGEP_SENHA_APP")
 
@@ -167,9 +172,7 @@ def enviar_email(
     senha_app
 ):
     try:
-        host = os.getenv('SMTP_HOST','smtp.gmail.com')
-        port = int(os.getenv('SMTP_PORT','465'))
-        security = os.getenv('SMTP_SECURITY','ssl').lower()
+        host,port,security,username = conta_email.transporte()
         if security not in ('ssl','starttls'):
             raise ValueError('SMTP_SECURITY deve ser ssl ou starttls.')
         factory = smtplib.SMTP_SSL if security=='ssl' else smtplib.SMTP
@@ -178,7 +181,7 @@ def enviar_email(
                 servidor.ehlo()
                 servidor.starttls(context=ssl.create_default_context())
                 servidor.ehlo()
-            servidor.login(os.getenv('SMTP_USER') or email_remetente, senha_app)
+            servidor.login(username or email_remetente, senha_app)
             servidor.send_message(mensagem)
 
         return (
@@ -231,11 +234,12 @@ def enviar_folha_do_banco(folha):
 
 def enviar_arquivo_registrado(id_envio,nome,email,caminho,competencia=None):
     """Preparação e SMTP comuns, com resultado registrado no mesmo histórico."""
+    conta=conta_email.obter() if not conta_email.modo_teste() else None
     mensagem, status, erro = preparar_email(
         nome,
         email,
         caminho,
-        os.getenv("DIGEP_EMAIL") or os.getenv("SMTP_USER", "")
+        conta.email if conta else (os.getenv("DIGEP_EMAIL") or os.getenv("SMTP_USER", ""))
     )
 
     if status == "PENDENTE" and competencia:
@@ -297,7 +301,7 @@ def enviar_apos_confirmacao(folha):
     except RuntimeError:
         return {
             "status": "NAO_CONFIGURADO",
-            "mensagem": "Vínculo salvo. Configure DIGEP_EMAIL e DIGEP_SENHA_APP no backend para enviar o e-mail.",
+            "mensagem": "Vínculo salvo. Conecte uma conta de e-mail para enviar a folha.",
         }
     payload = {
         "id_folha": folha["id_folha"],

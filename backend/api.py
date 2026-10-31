@@ -32,7 +32,7 @@ app.add_middleware(
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "Idempotency-Key", "X-Client-Id"],
+    allow_headers=["Content-Type", "Idempotency-Key", "X-Client-Id", "X-Email-Client-Id"],
 )
 
 
@@ -117,6 +117,7 @@ def cadastrar_servidor(payload: ServidorPayload):
         servidor = criar_servidor(
             payload.name, payload.registration, payload.email, payload.department,
             payload.workload, payload.cpf, payload.acumula_cargo,
+            payload.ua, payload.cargo, payload.padrao, payload.funcao, payload.exercicio,
         )
     except UniqueViolation:
         raise HTTPException(status_code=409, detail="Matrícula ou CPF já cadastrado.")
@@ -136,6 +137,8 @@ def editar_servidor(id_servidor: int, payload: ServidorPayload):
         servidor = atualizar_servidor(
             id_servidor, payload.name, payload.registration, payload.email, payload.department,
             payload.workload, payload.cpf, payload.acumula_cargo,
+            **{k: getattr(payload,k) if k in payload.model_fields_set or not current else current[k]
+               for k in ('ua','cargo','padrao','funcao','exercicio')},
         )
     except UniqueViolation:
         raise HTTPException(status_code=409, detail="Matrícula ou CPF já cadastrado.")
@@ -210,7 +213,7 @@ class LeaseMiddleware:
     def __init__(self, app): self.app=app
 
     async def __call__(self, scope, receive, send):
-        if scope['type']!='http' or scope['method'] in {'GET','HEAD','OPTIONS'} or scope['path'].startswith('/sistema/lock') or scope['path']=='/folhas/geradas/download-lote':
+        if scope['type']!='http' or scope['method'] in {'GET','HEAD','OPTIONS'} or scope['path'].startswith('/sistema/lock') or scope['path']=='/emails/conta' or scope['path']=='/folhas/geradas/download-lote':
             return await self.app(scope,receive,send)
         conn=None
         try:
@@ -226,3 +229,30 @@ app.add_middleware(LeaseMiddleware)
 
 from backend.routes.emails import router as router_emails
 app.include_router(router_emails)
+
+from backend.routes.conta_email import router as router_conta_email
+from backend.services import conta_email
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+app.include_router(router_conta_email)
+
+@app.exception_handler(RequestValidationError)
+async def validacao_sem_credenciais(request,error):
+    if request.url.path=='/emails/conta':
+        return JSONResponse({'detail':'Informe um e-mail válido e a senha de aplicativo/SMTP.'},status_code=422)
+    return await request_validation_exception_handler(request,error)
+
+class ContaEmailMiddleware:
+    def __init__(self,app):self.app=app
+    async def __call__(self,scope,receive,send):
+        if scope['type']!='http':return await self.app(scope,receive,send)
+        headers=dict(scope.get('headers',[]))
+        identifier=conta_email.cliente(headers.get(b'x-email-client-id',headers.get(b'x-client-id',b'')).decode(errors='replace'))
+        token=conta_email.CLIENTE_HTTP.set(identifier)
+        try:
+            if (scope['method']=='POST' and scope['path'] in {'/folhas/enviar-lote','/folhas/geradas/enviar-lote','/emails/reenviar-erros'}
+                and not conta_email.modo_teste() and not conta_email.obter()):
+                return await JSONResponse({'detail':'Conecte sua conta de e-mail antes de enviar folhas.'},status_code=409)(scope,receive,send)
+            await self.app(scope,receive,send)
+        finally:conta_email.CLIENTE_HTTP.reset(token)
+app.add_middleware(ContaEmailMiddleware)

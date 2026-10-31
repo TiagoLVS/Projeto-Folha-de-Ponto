@@ -16,8 +16,20 @@ export function clientId(): string {
   } catch { id = newId(); }
   return id;
 }
+let emailId = '';
+/** Identidade persistente deste perfil do navegador/aplicativo; nunca contém a senha SMTP. */
+export function emailClientId(): string {
+  if (emailId) return emailId;
+  try {
+    const saved = localStorage.getItem('ponto:email-client-id');
+    emailId = saved && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(saved) ? saved : newId();
+    localStorage.setItem('ponto:email-client-id', emailId);
+  } catch { emailId = newId(); }
+  return emailId;
+}
 export function sessionHeaders(initial?: HeadersInit): Headers {
   const headers = new Headers(initial);
   headers.set('X-Client-Id', clientId());
+  headers.set('X-Email-Client-Id', emailClientId());
   return headers;
 }

@@ -106,9 +106,38 @@ class TestCalendario(unittest.TestCase):
                 with pymupdf.open(stream=pdf,filetype='pdf') as doc:
                     self.assertEqual(len(doc),1)
                     text=doc[0].get_text()
-                    for word in ['43.061.297/0001-08','REGISTRO DE FREQUÊNCIA','UA:','MATRÍCULA:','CARGO:','PADRÃO:','FUNÇÃO:','EXERCÍCIO:','SÁBADO','DOMINGO',str(last),'institucional-v1']:
+                    for word in ['43.061.297/0001-08','REGISTRO DE FREQUÊNCIA','UA:','MATRÍCULA:','CARGO:','PADRÃO:','FUNÇÃO:','EXERCÍCIO:','SÁBADO','DOMINGO',str(last),'institucional-v2']:
                         self.assertIn(word,text)
                     self.assertNotIn('12345678901',text)
                     self.assertNotIn('Não deve virar UA',text)
                     for word in doc[0].get_text('words'):
                         self.assertLessEqual(word[2],595);self.assertLessEqual(word[3],842)
+
+
+class TestFormatacaoFolha(unittest.TestCase):
+    def test_grade_alinha_campos_e_mantem_altura_total_em_todos_os_meses(self):
+        professor=dict(nome='ANA_TESTE',matricula='12345',ua='UA_TESTE',cargo='PROF-D20',padrao='PD-4V',funcao='FUNCAO_TESTE',exercicio='ESCOLA_TESTE',carga_horaria=40)
+        for month,days in [('2027-02',28),('2028-02',29),('2027-04',30),('2027-01',31)]:
+            with self.subTest(month=month),pymupdf.open(stream=renderizar_pdf(professor,month,[],1),filetype='pdf') as doc:
+                self.assertEqual(len(doc),1)
+                page=doc[0]
+                words={w[4]:w for w in page.get_text('words')}
+                for text in ('UA_TESTE','ANA_TESTE','PROF-D20','FUNCAO_TESTE','ESCOLA_TESTE'):
+                    self.assertAlmostEqual(words[text][0],36,places=2)
+                for text in ('12345','PD-4V','40h'):
+                    self.assertAlmostEqual(words[text][0],305.5,places=2)
+                rows=[d['rect'] for d in page.get_drawings() if abs(d['rect'].x0-28)<.01 and abs(d['rect'].x1-567)<.01 and 13<d['rect'].height<18]
+                self.assertEqual(len(rows),days)
+                self.assertLess(max(r.height for r in rows)-min(r.height for r in rows),.01)
+                self.assertAlmostEqual(min(r.y0 for r in rows),236,places=2)
+                self.assertAlmostEqual(max(r.y1 for r in rows),682,places=2)
+
+    def test_campos_longos_preservados_em_anexo_sem_invadir_outros_campos(self):
+        value='Coordenação acadêmica de curso e projetos institucionais ' * 8
+        pdf=renderizar_pdf(dict(nome='Ana Silva',matricula='12345',carga_horaria=40,funcao=value),'2027-01',[],1)
+        with pymupdf.open(stream=pdf,filetype='pdf') as doc:
+            self.assertGreater(len(doc),1)
+            self.assertIn('[ver anexo]',doc[0].get_text())
+            normalized=' '.join(' '.join(p.get_text() for p in doc).split())
+            self.assertIn(' '.join(value.split()),normalized)
+            self.assertIn('40h',doc[0].get_text())

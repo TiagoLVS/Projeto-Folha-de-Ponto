@@ -81,3 +81,9 @@ Contrato existente: POST `/datas-especiais/importar` recebe multipart `arquivo`,
 ## Enviar modelos aos servidores
 
 Depois de gerar, clique **Enviar todas por e-mail** na mesma tela, confira os destinatários e confirme o lote. Pode também marcar documentos no histórico e enviar as selecionadas. O envio usa a versão mais recente de cada servidor no mês, exibe progresso e registra resultados em E-mails. Modelos em branco não exigem validação OCR. Gerar continua sem disparar mensagens automaticamente. Documentação e modo de teste em [API-ENVIO.md](API-ENVIO.md); requer migração 005.
+
+## Formatação institucional v2
+
+Novas gerações usam margens de 28 pontos, uma grade de dados cadastrais com rótulos acima dos valores, recuos de 8 pontos e linhas com altura uniforme. A área mensal da tabela mantém a mesma altura em meses de 28, 29, 30 e 31 dias; observações e assinaturas ficam na mesma posição. As colunas dos dois turnos são simétricas e o texto é centralizado pelas métricas da fonte. Valores cadastrais e eventos extensos que não cabem são preservados integralmente em anexo, com indicação na folha principal.
+
+O documento registra `institucional-v2`. PDFs anteriores permanecem intactos; para obter o novo desenho em uma competência que já possui documento, usar **Gerar nova versão de folhas existentes**. Não é necessária migração do banco para essa mudança visual.

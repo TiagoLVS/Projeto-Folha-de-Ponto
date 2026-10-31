@@ -11,6 +11,7 @@ COLUNAS_ESPERADAS = [
     "Nome", "Matrícula", "CPF", "E-mail",
     "Carga Horária", "Acumula cargo (Sim/Não)"
 ]
+COLUNAS_FUNCIONAIS = {'UA':'ua', 'Cargo':'cargo', 'Padrão':'padrao', 'Função':'funcao', 'Exercício':'exercicio'}
 
 
 def padronizar_nome(valor):
@@ -114,6 +115,16 @@ def ler_planilha(caminho):
         carga = registro["Carga Horária"]
         acumulacao = registro["Acumula cargo (Sim/Não)"]
         erros = []
+        funcionais = {}
+        for coluna, campo in COLUNAS_FUNCIONAIS.items():
+            if coluna not in planilha.columns:
+                continue
+            valor = registro[coluna]
+            texto = '' if pd.isna(valor) else str(valor).strip()
+            limite = 300 if campo == 'exercicio' else 200
+            if len(texto) > limite:
+                erros.append(f'{coluna} deve conter no máximo {limite} caracteres')
+            funcionais[campo] = texto or None
         if not nome:
             erros.append("Nome não informado")
         elif re.search(r"\d", nome):
@@ -134,6 +145,7 @@ def ler_planilha(caminho):
             invalidos.append({"linha": indice + 2, "erros": erros, "nome": nome, "matricula": matricula, "cpf": cpf})
         else:
             validos.append({
+                **funcionais,
                 "linha": indice + 2,
                 "matricula": matricula,
                 "nome": nome,

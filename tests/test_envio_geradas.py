@@ -115,8 +115,9 @@ class TestEnvioGeradas(unittest.TestCase):
         self.assertEqual(self.send([latest])[1]['falhas'],1)
         self.assertEqual(self.send([latest,latest])[0],422)
         self.assertEqual(self.smtp.call_count,0)
+        base.conta_email.desconectar(base.CLIENTE_TESTE)
         with patch.dict(os.environ,DIGEP_EMAIL='',SMTP_USER='',SMTP_PASSWORD='',DIGEP_SENHA_APP=''):
-            self.assertEqual(self.send([latest])[0],422)
+            self.assertEqual(self.send([latest])[0],409)
         with self.connect() as conn:self.assertEqual(conn.execute('SELECT count(*) FROM envio').fetchone()[0],0)
 
     def test_pendente_nao_duplica_e_banco_exige_origem(self):

@@ -21,6 +21,11 @@ CREATE TABLE servidor (
 
     data_cadastro TIMESTAMP WITH TIME ZONE
         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ua VARCHAR(200),
+    cargo VARCHAR(200),
+    padrao VARCHAR(200),
+    funcao VARCHAR(200),
+    exercicio VARCHAR(300),
 
     CONSTRAINT pk_servidor
         PRIMARY KEY (id_servidor),
@@ -355,3 +360,11 @@ CREATE INDEX idx_calendario_preview_expiracao ON importacao_calendario_preview(e
 INSERT INTO schema_migration(versao) VALUES('004_refinamentos');
 
 INSERT INTO schema_migration(versao) VALUES('005_envio_modelos');
+INSERT INTO schema_migration(versao) VALUES('006_dados_funcionais');
+
+CREATE TABLE conta_email_cliente (
+    cliente_hash CHAR(64) PRIMARY KEY,
+    credenciais_cifradas TEXT NOT NULL,
+    atualizado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO schema_migration(versao) VALUES('007_conta_email');

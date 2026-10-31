@@ -9,7 +9,7 @@ import { generationCandidates } from '@/lib/generation-selection';
 import { addSelection, selectAll, type AcademicSettings } from '@/lib/academic-limits';
 import type { Professor } from '@/lib/ponto';
 
-export function SheetGeneration({ professors, initialMonth }: { professors: Professor[]; initialMonth: string }) {
+export function SheetGeneration({ professors, initialMonth, onMonthChange, embedded = false }: { professors: Professor[]; initialMonth: string; onMonthChange?: (month: string) => void; embedded?: boolean }) {
   const { blocked } = useSystemLock();
   const [settings, setSettings] = useState<AcademicSettings | null>(null);
   const [settingsError, setSettingsError] = useState('');
@@ -31,7 +31,8 @@ export function SheetGeneration({ professors, initialMonth }: { professors: Prof
     try { setSelected(selectedIds.length === candidates.length ? [] : selectAll(candidates.map(p => p.id), settings.max_generation_batch)); setError(''); }
     catch (e) { setError((e as Error).message); }
   }
-  const [month, setMonth] = useState(initialMonth);
+  const [localMonth, setMonth] = useState(initialMonth);
+  const month = onMonthChange ? initialMonth : localMonth;
   const [selected, setSelected] = useState<string[]>([]);
   const [versions, setVersions] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -74,8 +75,8 @@ export function SheetGeneration({ professors, initialMonth }: { professors: Prof
     }, true);
   }
   const currentHistory = loaded === key ? history : [];
-  return <div className="academic-page view-enter"><div className="page-heading"><div><h1>Gerar folhas de ponto</h1><p>Modelo institucional em branco, com calendário e dados cadastrais.</p></div></div>
-    <section className="academic-panel"><div className="academic-toolbar"><label>Competência<Input type="month" min="2000-01" max="2099-12" value={month} disabled={busy} onChange={e => { if (/^20\d{2}-(0[1-9]|1[0-2])$/.test(e.target.value)) { setMonth(e.target.value); setReport(null); setSelected([]); setVersions(false); } }} /></label><Button variant="outline" disabled={busy || !settings || !candidates.length} onClick={toggleAll}>{selectedIds.length === candidates.length && candidates.length ? 'Desmarcar todos' : 'Selecionar todos'}</Button><span>{selectedIds.length} selecionados · máximo {settings?.max_generation_batch ?? '…'} por lote</span></div>
+  return <div className="academic-page view-enter">{!embedded && <div className="page-heading"><div><h1>Gerar folhas de ponto</h1><p>Modelo institucional em branco, com calendário e dados cadastrais.</p></div></div>}
+    <section className="academic-panel"><div className="academic-toolbar"><label>Competência<Input type="month" min="2000-01" max="2099-12" value={month} disabled={busy} onChange={e => { if (/^20\d{2}-(0[1-9]|1[0-2])$/.test(e.target.value)) { setMonth(e.target.value); onMonthChange?.(e.target.value); setReport(null); setSelected([]); setVersions(false); } }} /></label><Button variant="outline" disabled={busy || !settings || !candidates.length} onClick={toggleAll}>{selectedIds.length === candidates.length && candidates.length ? 'Desmarcar todos' : 'Selecionar todos'}</Button><span>{selectedIds.length} selecionados · máximo {settings?.max_generation_batch ?? '…'} por lote</span></div>
       <div className="professor-options">{candidates.map(p => <label className="check-label" key={p.id}><input type="checkbox" disabled={busy} checked={selectedIds.includes(p.id)} onChange={e => toggle(p.id, e.target.checked)} /><span>{p.name}<small>Matrícula {p.registration} · Carga horária: {p.workload ?? 'não informada'}</small></span></label>)}</div>{!historyReady && !loadError && <p role="status">Carregando servidores pendentes…</p>}{historyReady && !professors.length && <p>Cadastre um professor antes de gerar folhas.</p>}{historyReady && professors.length > 0 && !candidates.length && <p>Todos os servidores já têm folha gerada nesta competência.</p>}
       <label className="check-label"><input type="checkbox" checked={versions} disabled={busy} onChange={e => { setVersions(e.target.checked); setSelected([]); }} />Gerar nova versão de folhas existentes.</label><p>Horários e assinaturas ficam em branco. Gerar um modelo não confirma frequência nem envia e-mail. Cada versão preserva os eventos utilizados na sua criação.</p><Button disabled={busy || blocked || !selectedIds.length || !settings || selectedIds.length > settings.max_generation_batch} onClick={() => void generate()}>{busy ? 'Processando…' : selectedIds.length === 1 ? 'Gerar PDF' : 'Gerar PDFs selecionados'}</Button>
     </section>

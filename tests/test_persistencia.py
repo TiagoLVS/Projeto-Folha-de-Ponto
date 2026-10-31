@@ -6,16 +6,20 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import time
 from unittest.mock import patch
 from uuid import uuid4
 import psycopg
 import pymupdf
 from backend.api import app
 from backend.database import repository
-from backend.services import folhas_recebidas
+from backend.services import folhas_recebidas, conta_email
 
+
+CLIENTE_TESTE='eeb5e424-1b32-4f1a-842d-6c0d3e295050'
 
 def request(method,url,payload=None,body=None,content_type='application/json',headers=None):
+    headers={'X-Client-Id':CLIENTE_TESTE,**(headers or {})}
     path,_,query=url.partition('?');events=[]
     content=body if body is not None else json.dumps(payload).encode() if payload is not None else b''
     async def receive(): return {'type':'http.request','body':content,'more_body':False}
@@ -51,6 +55,8 @@ class TestPersistencia(unittest.TestCase):
         folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup);self.folder=Path(folder.name)
         context=patch.object(folhas_recebidas,'PASTA_FOLHAS',self.folder);context.start();self.addCleanup(context.stop)
         context=patch.dict(os.environ,DIGEP_EMAIL='digep@example.com',DIGEP_SENHA_APP='test-only',DIGEP_MODO_TESTE='false',SMTP_USER='',SMTP_PASSWORD='');context.start();self.addCleanup(context.stop)
+        conta_email.guardar(CLIENTE_TESTE,conta_email.Conta('digep@example.com','test-only','smtp.example.com',465,'ssl'))
+        self.addCleanup(conta_email.desconectar,CLIENTE_TESTE)
         context=patch('backend.services.enviar_email.enviar_email',return_value=('ENVIADO','',None));self.smtp=context.start();self.addCleanup(context.stop)
         self.payload=dict(name='Ana',registration='12345',cpf='001.234.567-89',email='ANA@EXEMPLO.COM',department='Ensino',workload=40)
 

@@ -1,0 +1,42 @@
+PONTO DOCENTE - UnDF | Windows x64
+
+1. Extraia TODA a pasta do ZIP em uma pasta local. Não execute de dentro do ZIP.
+2. Abra PontoDocente.exe. Não é necessário instalar Python, Node.js ou PostgreSQL.
+3. Em apenas um computador, escolha "Este é o computador principal".
+4. Aguarde a preparação. O sistema começa com banco vazio; não copia um banco antigo.
+5. Nesse computador, use Aplicativo > Exportar conexão da equipe e entregue o JSON aos demais.
+6. Nos demais, escolha "Conectar ao computador principal" e selecione esse JSON.
+7. Permita o acesso à rede PRIVADA quando o Firewall do Windows solicitar.
+8. Mantenha o aplicativo do computador principal aberto durante o trabalho da equipe.
+
+Os dados ficam no perfil do Windows do computador principal, em:
+%APPDATA%\PontoDocenteUnDF\principal
+Os demais computadores não têm um banco separado. Não coloque a pasta postgres em uma pasta de rede.
+Fechar o principal encerra os serviços e interrompe o acesso da equipe; os dados são preservados.
+
+Gmail: conecte pela tela usando o e-mail completo e uma SENHA DE APLICATIVO.
+A senha normal não substitui a senha de aplicativo nessa integração SMTP.
+O acesso entre aplicativos é HTTPS com verificação do certificado exportado no JSON.
+Se o endereço do principal mudar, exporte e importe novamente a conexão.
+
+ANTES DE USAR COM DADOS REAIS
+Este pacote foi montado fora do Windows. A inicialização completa, OCR, envio e backup
+precisam ser homologados em uma máquina Windows 10/11 x64 com dados fictícios.
+O aplicativo não possui assinatura digital de editor; o Windows pode exigir confirmação.
+O modo principal fornece acesso às máquinas da rede local privada, sem login do sistema.
+Use somente na rede de confiança da equipe.
+
+BACKUP E ATUALIZAÇÃO
+Feche o aplicativo principal antes de copiar a pasta principal inteira para backup.
+Preserve as subpastas data, postgres, secrets, certificado, backups e o arquivo banco.bin.
+A proteção do banco.bin depende do usuário do Windows; para mudar de usuário/computador,
+peça ao responsável para fazer a transferência por pg_dump/pg_restore e ajustar os caminhos
+dos PDFs. A pasta postgres não deve ser transferida entre versões incompatíveis.
+As migrações do banco privado são precedidas por um dump na pasta backups.
+Atualize a pasta do programa extraída; não substitua a pasta de dados do perfil do Windows.
+Logs: Aplicativo > Abrir pasta de suporte > principal > logs.
+
+DISTRIBUIÇÃO
+Inclui Electron/Chromium/Node.js, Python, PostgreSQL e Tesseract e dependências.
+Consulte as licenças incluídas nas respectivas pastas e nos arquivos de dependências.
+O código usa PyMuPDF; confira sua licença AGPL ou comercial antes da distribuição.

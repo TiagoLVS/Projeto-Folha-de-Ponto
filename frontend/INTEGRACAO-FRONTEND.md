@@ -58,3 +58,7 @@ Cadastro/edição envia workload como inteiro 20/40 e acumula_cargo como boolean
 ### E-mail dos modelos em branco
 
 GeneratedEmailBatch usa o proxy acadêmico: GET /folhas/geradas/para-envio e POST /folhas/geradas/enviar-lote. Uma ação inicia chamadas sequenciais com um ID por chamada, chave estável e renovação do lease, progresso agregado e retomada. Prévia e validações vêm do servidor; só versões mais recentes e elegíveis são enviadas. O histórico aceita id_folha NULL quando id_documento está informado e mostra origem GERADA/RECEBIDA e destinatário. O reenvio de erros utiliza o endpoint já existente. Não é necessário executar OCR para os modelos. A regra de confirmação de recebidas não foi removida.
+
+## Dados funcionais (migração 006)
+
+GET/POST/PUT de servidores incluem `ua`, `cargo`, `padrao`, `funcao` e `exercicio`, strings opcionais ou null. Limites: 200 caracteres, exceto Exercício (300). O frontend conserva esses campos ao recarregar e editar o cadastro. Em PUT, campos omitidos por clientes antigos são preservados; null explícito limpa o campo. A importação aceita as colunas UA, Cargo, Padrão, Função e Exercício: ausentes preservam, células vazias limpam. O cadastro utilizado na geração permanece registrado no snapshot do documento.

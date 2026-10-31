@@ -156,21 +156,22 @@ def listar_servidores():
     with conectar() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             cursor.execute("""
-                SELECT id_servidor, nome, matricula, cpf, email, departamento, carga_horaria, acumula_cargo
+                SELECT id_servidor, nome, matricula, cpf, email, departamento, carga_horaria, acumula_cargo, ua, cargo, padrao, funcao, exercicio
                 FROM servidor ORDER BY nome, id_servidor
             """)
             return cursor.fetchall()
 
 
-def atualizar_servidor(id_servidor, nome, matricula, email, departamento, carga_horaria=None, cpf=None, acumula_cargo=False):
+def atualizar_servidor(id_servidor, nome, matricula, email, departamento, carga_horaria=None, cpf=None, acumula_cargo=False, ua=None, cargo=None, padrao=None, funcao=None, exercicio=None):
     with conectar() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             cursor.execute("""
                 UPDATE servidor SET nome = %s, matricula = %s,
-                    email = %s, departamento = %s, carga_horaria = %s, cpf = %s, acumula_cargo = %s
+                    email = %s, departamento = %s, carga_horaria = %s, cpf = %s, acumula_cargo = %s,
+                    ua=%s, cargo=%s, padrao=%s, funcao=%s, exercicio=%s
                 WHERE id_servidor = %s
-                RETURNING id_servidor, nome, matricula, cpf, email, departamento, carga_horaria, acumula_cargo
-            """, (nome, matricula, email, departamento, carga_horaria, cpf, acumula_cargo, id_servidor))
+                RETURNING id_servidor, nome, matricula, cpf, email, departamento, carga_horaria, acumula_cargo, ua, cargo, padrao, funcao, exercicio
+            """, (nome, matricula, email, departamento, carga_horaria, cpf, acumula_cargo, ua, cargo, padrao, funcao, exercicio, id_servidor))
             return cursor.fetchone()
 
 
@@ -215,7 +216,7 @@ def confirmar_folha(id_folha, id_servidor, mes, ano):
             }
 
 
-def criar_servidor(nome, matricula, email, departamento, carga_horaria=None, cpf=None, acumula_cargo=False):
+def criar_servidor(nome, matricula, email, departamento, carga_horaria=None, cpf=None, acumula_cargo=False, ua=None, cargo=None, padrao=None, funcao=None, exercicio=None):
     with conectar() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -226,36 +227,32 @@ def criar_servidor(nome, matricula, email, departamento, carga_horaria=None, cpf
                 return None
             cursor.execute(
                 """
-                INSERT INTO servidor (nome, matricula, email, departamento, carga_horaria, cpf, acumula_cargo)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING id_servidor, nome, matricula, cpf, email, departamento, carga_horaria, acumula_cargo
+                INSERT INTO servidor (nome, matricula, email, departamento, carga_horaria, cpf, acumula_cargo, ua, cargo, padrao, funcao, exercicio)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id_servidor, nome, matricula, cpf, email, departamento, carga_horaria, acumula_cargo, ua, cargo, padrao, funcao, exercicio
                 """,
-                (nome, matricula, email, departamento, carga_horaria, cpf, acumula_cargo),
+                (nome, matricula, email, departamento, carga_horaria, cpf, acumula_cargo, ua, cargo, padrao, funcao, exercicio),
             )
             return cursor.fetchone()
 
 
+def gravar_servidor_importado(cursor, registro):
+    # Identificadores vêm apenas desta lista fixa. Colunas ausentes na planilha
+    # não entram no UPDATE e preservam informações funcionais já cadastradas.
+    campos = ['matricula', 'nome', 'cpf', 'email', 'carga_horaria', 'acumula_cargo']
+    campos += [k for k in ('ua', 'cargo', 'padrao', 'funcao', 'exercicio') if k in registro]
+    cursor.execute(
+        'INSERT INTO servidor (' + ','.join(campos) + ') VALUES (' + ','.join(['%s'] * len(campos)) + ') '
+        'ON CONFLICT (matricula) DO UPDATE SET ' + ','.join(k + '=EXCLUDED.' + k for k in campos if k != 'matricula'),
+        tuple(registro[k] for k in campos))
+
+
 def importar_servidores(registros):
-    """Insere ou atualiza servidores importados de uma planilha validada."""
+    """Insere ou atualiza servidores, preservando colunas opcionais ausentes."""
     with conectar() as conn:
         with conn.cursor() as cursor:
             for registro in registros:
-                cursor.execute(
-                    """
-                    INSERT INTO servidor (
-                        matricula, nome, cpf, email, carga_horaria, acumula_cargo
-                    ) VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (matricula) DO UPDATE SET
-                        nome = EXCLUDED.nome,
-                        cpf = EXCLUDED.cpf,
-                        email = EXCLUDED.email,
-                        carga_horaria = EXCLUDED.carga_horaria,
-                        acumula_cargo = EXCLUDED.acumula_cargo
-                    """,
-                    (registro["matricula"], registro["nome"], registro["cpf"],
-                     registro["email_pessoal"], registro["carga_horaria"],
-                     registro["acumula_cargo"]),
-                )
+                gravar_servidor_importado(cursor, {**registro, 'email': registro['email_pessoal']})
     return len(registros)
 
 

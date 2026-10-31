@@ -1,6 +1,6 @@
 # Banco atualizado e migrações
 
-`database/folha_pontos.sql` contém a instalação completa e independente das migrações anteriores. Bancos existentes usam somente 001 → 002 → 003 → 004 → 005, nessa ordem. Requer PostgreSQL 17+ em UTF-8 (normalização Unicode nativa); testes em PostgreSQL 18.
+`database/folha_pontos.sql` contém a instalação completa e independente das migrações anteriores. Bancos existentes usam somente 001 → 002 → 003 → 004 → 005 → 006, nessa ordem. Requer PostgreSQL 17+ em UTF-8 (normalização Unicode nativa); testes em PostgreSQL 18.
 
 ## Instalação nova
 
@@ -23,6 +23,7 @@ psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/mig
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/003_integracao_sistema.sql
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/004_refinamentos.sql
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/005_envio_modelos.sql
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/006_dados_funcionais_servidor.sql
 ```
 
 Se 001/002 já estavam aplicadas, podem ser repetidas conforme as verificações dos respectivos arquivos. 003 é transacional, identifica reaplicação e verifica estruturas essenciais. Objetos parciais sem marcador causam erro/rollback; não há DROP de tabelas ou exclusão de dados. A inicialização da aplicação não migra automaticamente.
@@ -33,7 +34,7 @@ Confira:
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -c "SELECT * FROM schema_migration ORDER BY versao;"
 ```
 
-Devem constar 002_calendario, 003_integracao, 004_refinamentos e 005_envio_modelos (001 usa seu controle anterior). Em schemas personalizados, preserve o mesmo search_path da aplicação. Para conferir a versão e o encoding, use SHOW server_version e SHOW server_encoding.
+Devem constar 002_calendario, 003_integracao, 004_refinamentos, 005_envio_modelos e 006_dados_funcionais (001 usa seu controle anterior). Em schemas personalizados, preserve o mesmo search_path da aplicação. Para conferir a versão e o encoding, use SHOW server_version e SHOW server_encoding.
 
 ## Estrutura preservada
 
@@ -141,3 +142,11 @@ O diagnóstico do inicializador identifica arquivos pendentes. `bash iniciar.sh 
 Índice (id_documento,id_envio DESC) auxilia consulta/deduplicação. Índice único parcial (id_documento,lower(email_destino)) WHERE id_documento IS NOT NULL AND status_envio=PENDENTE protege reservas concorrentes. A reserva mantém lock curto no modelo até registrar PENDENTE; SMTP acontece após commit. O envio não modifica os modelos ou cria folhas recebidas. Dados e credenciais reais não são utilizados nos testes.
 
 O schema completo declara essas regras diretamente; o inicializador agora exige 005. Depois de backup, `bash iniciar.sh --migrar` aplica somente as pendentes. Esta entrega não aplicou migrações no banco real.
+
+## Migração 006: dados funcionais
+
+Adiciona à tabela servidor `ua`, `cargo`, `padrao`, `funcao` (VARCHAR 200) e `exercicio` (VARCHAR 300), permitindo NULL para cadastros antigos e valores não informados. Não altera identificadores, vínculos, documentos, e-mails ou valores anteriores. A execução é transacional e pode ser repetida. O schema completo e a cadeia de migrações são comparados nos testes.
+
+## 007 — Conta de e-mail por cliente
+
+`database/migrations/007_conta_email.sql` adiciona `conta_email_cliente`, com hash do identificador do cliente, credenciais cifradas e data de atualização. Não altera `servidor` nem registros de envio. Após backup: `bash iniciar.sh --migrar`. Guardar também backup separado de `.secrets/email.key` no servidor (ou da chave configurada no ambiente). Excluir a conta pela interface remove a linha; não altera o histórico.
