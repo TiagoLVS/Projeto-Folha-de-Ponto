@@ -47,7 +47,7 @@ Salvar a conta não dispensa conexão com a internet nem autorização do Gmail.
 
 ## Aparência
 
-Em **Configurações → Tema**, o padrão **Sistema** acompanha o tema claro/escuro do Windows, inclusive se ele mudar com o aplicativo aberto. Você também pode escolher **Claro** ou **Escuro**. A preferência fica somente neste computador/perfil.
+No canto superior direito, o **botão deslizante com sol e lua** alterna entre claro e escuro. O ícone de monitor ao lado restaura o tema automático. O padrão **Sistema** acompanha o tema claro/escuro do Windows, inclusive se ele mudar com o aplicativo aberto. Você também pode escolher **Claro** ou **Escuro**. A preferência fica somente neste computador/perfil.
 
 ## Folhas de ponto
 

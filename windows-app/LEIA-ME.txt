@@ -20,7 +20,8 @@ O acesso entre aplicativos é HTTPS com verificação do certificado exportado n
 Se o endereço do principal mudar, exporte e importe novamente a conexão.
 
 APARÊNCIA
-Em Configurações, escolha Sistema, Claro ou Escuro. O padrão acompanha o Windows.
+Use o botão com sol e lua no cabeçalho para alternar o tema.
+O ícone de monitor ao lado restaura o tema automático do Windows.
 A interface e o banco local funcionam sem internet; envio de e-mail exige conexão.
 
 ANTES DE USAR COM DADOS REAIS

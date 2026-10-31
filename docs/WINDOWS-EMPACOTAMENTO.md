@@ -24,7 +24,7 @@ Computador da equipe
 Electron → HTTPS + certificado fixado → computador principal
 ```
 
-O build desktop usa React/Vite e gera `windows-app/frontend-dist`. Next static export não atende sozinho aos proxies API existentes; o Vite permite manter o Next web sem levar seu servidor para o pacote. `windows-app/frontend/main.tsx` importa o mesmo `PontoApp`, providers, serviços, formulários, tabelas, ícones e folhas de estilo da web. Não existe uma cópia das telas de negócio. A navegação desktop usa hash para Professores, Folhas, Calendário, E-mails e Configurações.
+O build desktop usa React/Vite e gera `windows-app/frontend-dist`. Next static export não atende sozinho aos proxies API existentes; o Vite permite manter o Next web sem levar seu servidor para o pacote. `windows-app/frontend/main.tsx` importa o mesmo `PontoApp`, providers, serviços, formulários, tabelas, ícones e folhas de estilo da web. Não existe uma cópia das telas de negócio. A navegação desktop usa hash para Professores, Folhas, Calendário e E-mails.
 
 O transporte central `frontend/lib/api-transport.ts` mantém `/api` na mesma origem: na web, as API Routes Next encaminham a requisição; no desktop, `backend/desktop.py` adapta os caminhos para as rotas FastAPI existentes. Corpo multipart, queries, headers, status, arquivos, locks, identificação da conta e chaves de idempotência são preservados. As regras continuam no backend original. Recursos desconhecidos retornam 404, sem disfarçar assets ausentes como HTML.
 
@@ -42,7 +42,7 @@ Dados do principal: `%APPDATA%\\PontoDocenteUnDF\\principal`. O JSON de conexão
 
 ## Tema visual
 
-O padrão é **Sistema**: Windows claro → interface clara; Windows escuro → interface escura. Mudanças do sistema atualizam a interface aberta. Em Configurações, Claro ou Escuro substituem essa escolha automática. Apenas a preferência visual fica no localStorage do computador, sem gravar dados de negócio ou senhas ali. Cards, navegação, tabelas, calendário, campos, modais e alertas compartilham os tokens do tema. A tela inicial também acompanha o sistema.
+O padrão é **Sistema**: Windows claro → interface clara; Windows escuro → interface escura. Mudanças do sistema atualizam a interface aberta. O botão deslizante com sol e lua no cabeçalho alterna entre Claro e Escuro. O ícone de monitor ao lado restaura o tema Sistema. Apenas a preferência visual fica no localStorage do computador, sem gravar dados de negócio ou senhas ali. Cards, navegação, tabelas, calendário, campos, modais e alertas compartilham os tokens do tema. A tela inicial também acompanha o sistema.
 
 ## Gerar o pacote
 
@@ -73,7 +73,7 @@ Dentro do ZIP, `PontoDocente/PontoDocente.exe` e `resources/{frontend,server,run
 
 ## Validação e workflow
 
-O workflow manual `.github/workflows/windows-app.yml` permanece em `windows-latest`. Executa testes/tipos/lint, build estático, montagem, validação do staging, testes de rede/configuração, smoke de serviços usando o Node do próprio Electron, smoke da janela real (cinco telas em ambos os temas), ZIP/SHA-256 e artifact. Qualquer falha interrompe a publicação.
+O workflow manual `.github/workflows/windows-app.yml` permanece em `windows-latest`. Executa testes/tipos/lint, build estático, montagem, validação do staging, testes de rede/configuração, smoke de serviços usando o Node do próprio Electron, smoke da janela real (quatro telas em ambos os temas), ZIP/SHA-256 e artifact. Qualquer falha interrompe a publicação.
 
 `validate-frontend.cjs` exige `index.html`, JavaScript e recursos locais existentes e rejeita links, arquivos privados, Next e node_modules no frontend. O ZIP também verifica executável, backend, Python, PostgreSQL, Tesseract e idioma português. Não há resolução de next/react/react-dom no staging: React é compilado no bundle e Next deixou de ser uma dependência de execução desktop.
 
@@ -95,3 +95,11 @@ A interface anterior tinha 296.694.031 bytes (~283 MiB). A nova interface estát
 Nesta refatoração, testes Python, web, build desktop, smoke com serviços privados locais e inspeção visual em Electron Linux foram executados. Isso não equivale a executar o binário Windows. O workflow atualizado precisa ser rodado no GitHub antes de distribuir a nova versão. Homologar também duas máquinas reais, firewall, DPAPI, OCR Windows com documentos de teste, importações e envio SMTP autorizado. Não foi enviado e-mail real nem alterado o banco da instalação durante os testes. Testes visuais locais usam fixtures fictícias; os testes de serviços usam PostgreSQL descartável.
 
 As licenças dos runtimes acompanham a distribuição. O projeto usa PyMuPDF (AGPL ou licença comercial); a mudança de frontend não altera essas obrigações.
+
+## Encerramento e limpeza dos smoke tests
+
+`host.stop()` compartilha uma única Promise entre chamadas concorrentes. Fecha o gateway HTTPS, encerra os processos filhos e aguarda seus eventos `close` (incluindo stdout/stderr), executa `pg_ctl -m fast -w stop`, confirma a saída do PID do postmaster e a remoção de `postmaster.pid`, e aguarda o fechamento do arquivo de log. Falhas de encerramento geram erro; não são convertidas em aviso de sucesso. No Windows, o encerramento dos serviços filhos usa `taskkill /PID ... /T /F` somente para a árvore iniciada pelo aplicativo, incluindo subprocessos OCR, sem solicitar privilégios administrativos. O PostgreSQL continua usando seu encerramento controlado próprio. Há limites finitos e confirmação de saída.
+
+O smoke preserva todas as verificações funcionais e acrescenta a conferência dos PIDs/streams após cada encerramento. A limpeza de serviços e GUI usa `fs.promises.rm` com `recursive`, `force`, `maxRetries: 10` e `retryDelay: 250`, opções suportadas no Node 24. O retry linear é aplicado apenas aos erros transitórios reconhecidos pelo Node; `force` só tolera diretório já ausente. Não se remove o temporário enquanto um processo monitorado está ativo. Erro persistente falha o teste com caminho, limite de tentativas, processos/PIDs, arquivos restantes e causa original. Erros funcionais e de limpeza são preservados juntos em AggregateError.
+
+Os testes de lifecycle verificam processos e streams reais, encerramento forçado controlado, PID ainda ativo, configuração do retry e falha persistente com diagnóstico. O caso de árvore de processos Windows roda no runner Windows; em Linux fica explicitamente marcado como não executado. O workflow mantém os testes de serviços e janela antes do ZIP/SHA-256 e artifact.

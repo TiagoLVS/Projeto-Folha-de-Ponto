@@ -1,4 +1,5 @@
 'use client';
+import { Sun, Moon, Monitor } from 'lucide-react';
 import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { setVisualTheme, subscribeTheme, themeSnapshot, type VisualTheme } from '@/lib/visual-theme';
 export function useVisualTheme() {
@@ -11,7 +12,13 @@ export function VisualThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => { document.documentElement.classList.toggle('dark', resolved === 'dark'); document.documentElement.style.colorScheme = resolved; }, [resolved]);
   return children;
 }
-export function ThemeSettings() {
-  const { preference } = useVisualTheme();
-  return <section className="academic-panel theme-settings"><h2>Aparência</h2><p>Escolha o tema deste computador. Em Sistema, a aparência acompanha as mudanças do Windows ou do navegador.</p><fieldset><legend>Tema</legend>{([['system', 'Sistema'], ['light', 'Claro'], ['dark', 'Escuro']] as const).map(([value, label]) => <label key={value}><input type="radio" name="visual-theme" value={value} checked={preference === value} onChange={() => setVisualTheme(value)} />{label}</label>)}</fieldset></section>;
+export function ThemeToggle() {
+  const { preference, resolved } = useVisualTheme();
+  const dark = resolved === 'dark';
+  return <div className="theme-controls" aria-label="Aparência">
+    <button type="button" role="switch" aria-label="Tema escuro" aria-checked={dark} className="theme-toggle" title={dark ? 'Mudar para tema claro' : 'Mudar para tema escuro'} onClick={() => setVisualTheme(dark ? 'light' : 'dark')}>
+      <Sun size={18} aria-hidden="true" /><Moon size={18} aria-hidden="true" /><span className="theme-toggle-thumb" aria-hidden="true" />
+    </button>
+    <button type="button" className="theme-system" aria-label="Acompanhar tema do sistema" aria-pressed={preference === 'system'} title="Acompanhar tema do sistema" onClick={() => setVisualTheme('system')}><Monitor size={16} aria-hidden="true" /></button>
+  </div>;
 }

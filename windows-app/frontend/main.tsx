@@ -13,7 +13,7 @@ import '../../frontend/app/clean-desktop.css';
 import '../../frontend/app/academic.css';
 import '../../frontend/app/themes.css';
 configureApiTransport(window.location.origin);
-const pages = ['professores', 'folhas', 'calendario', 'emails', 'configuracoes'] as const;
+const pages = ['professores', 'folhas', 'calendario', 'emails'] as const;
 const hash = window.location.hash.slice(1);
 const initialView = pages.find(view => view === hash) ?? 'professores';
 createRoot(document.getElementById('root')!).render(<React.StrictMode><VisualThemeProvider><SystemLock /><EmailAccount /><PontoApp initialView={initialView} desktopNavigation /><Toaster position="bottom-right" richColors /></VisualThemeProvider></React.StrictMode>);

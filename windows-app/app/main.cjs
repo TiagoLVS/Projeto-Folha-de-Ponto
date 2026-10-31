@@ -75,5 +75,5 @@ app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',event=>{
  if(quitting||!host)return;
  event.preventDefault();quitting=true;
- host.stop().finally(()=>app.quit());
+ host.stop().catch(error=>{console.error('Falha ao encerrar serviços:',error);dialog.showErrorBox('Não foi possível confirmar o encerramento','Um serviço não confirmou o encerramento. Informe o responsável antes de abrir novamente o aplicativo.');}).finally(()=>app.quit());
 });

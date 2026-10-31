@@ -1,6 +1,7 @@
 // Validação dos runtimes Windows reais em dados descartáveis; nunca envia e-mail.
 const fs=require('node:fs');const path=require('node:path');const os=require('node:os');const https=require('node:https');const assert=require('node:assert/strict');
-const {start,freePort}=require('../app/host.cjs');const {check}=require('../app/network.cjs');
+const {start,freePort}=require('../app/host.cjs');
+const {cleanup}=require('./cleanup.cjs');const {check}=require('../app/network.cjs');
 if(process.platform!=='win32')throw new Error('Execute este teste com os runtimes Windows em Windows.');
 const resources=path.resolve(process.argv[2]||path.join(__dirname,'../release/PontoDocente-win32-x64/resources'));
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'ponto-windows-smoke-'));let host;
@@ -9,6 +10,13 @@ function request(url,method='GET',payload){return new Promise((resolve,reject)=>
  const req=https.request(url,{rejectUnauthorized:false,method,headers},response=>{let data='';response.on('data',chunk=>data+=chunk);response.on('end',()=>resolve({status:response.statusCode,headers:response.headers,data}));});
  req.on('error',reject);req.end(payload===undefined?undefined:JSON.stringify(payload));
 });}
+function assertStopped(instance){
+ const state=instance.processStatus();
+ assert.ok(state.some(item=>item.command==='postgres'),'O postmaster deve ser monitorado.');
+ assert.ok(state.some(item=>/^python(?:\.exe)?$/.test(item.command)),'O Python deve ser monitorado.');
+ assert.deepEqual(state.filter(item=>item.active||item.streamsClosed===false),[],'Nenhum processo ou stream pode sobreviver a stop(): '+JSON.stringify(state));
+}
+let failure;
 (async()=>{try{
  const options={resources,folder:path.join(temp,'dados'),gatewayPort:await freePort(),encrypt:async text=>Buffer.from(text),decrypt:async data=>data.toString(),log:console.log};
  host=await start(options);await check(host);
@@ -29,10 +37,16 @@ function request(url,method='GET',payload){return new Promise((resolve,reject)=>
  for(const endpoint of ['/api/emails','/api/email-account','/api/academic/folhas/geradas?competencia=2026-10'])assert.equal((await request(host.url+endpoint)).status,200,endpoint);
  assert.ok(fs.existsSync(path.join(temp,'dados','data','folhas','geradas','2026-10')));
  await assert.rejects(check({...host,fingerprint:'00'.repeat(32)}));
- await host.stop();host=null;
+ await host.stop();assertStopped(host);host=null;
  host=await start(options);
  result=await request(host.url+'/api/servers');assert.equal(result.status,200,result.data);assert.equal(JSON.parse(result.data).length,1);
  console.log('OK: inicialização, cadastro/edição, PDF/download, histórico, estado da conta, HTTPS, rejeição de certificado incorreto, persistência e reinicialização. Sem SMTP real.');
- }catch(error){for(const name of ['servicos.log','postgres.log']){const file=path.join(temp,'dados','logs',name);if(fs.existsSync(file))console.error(fs.readFileSync(file,'utf8').slice(-5000));}throw error;}
- finally{if(host)await host.stop();fs.rmSync(temp,{recursive:true,force:true});}
+ }catch(error){failure=error;for(const name of ['servicos.log','postgres.log']){const file=path.join(temp,'dados','logs',name);try{if(fs.existsSync(file))console.error(fs.readFileSync(file,'utf8').slice(-5000));}catch(readError){console.error('Falha ao ler log '+file,readError);}}}
+ finally{
+  const errors=failure?[failure]:[];
+  if(host){try{await host.stop();assertStopped(host);}catch(error){errors.push(error);}}
+  try{await cleanup(temp,{processes:()=>host?.processStatus()||[]});}catch(error){errors.push(error);}
+  if(errors.length)throw new AggregateError(errors,'Smoke/encerramento/cleanup falhou; temporário: '+temp,{cause:errors[0]});
+  console.log('OK: processos encerrados, streams fechados e diretório temporário removido.');
+ }
 })().catch(error=>{console.error(error);process.exitCode=1;});
