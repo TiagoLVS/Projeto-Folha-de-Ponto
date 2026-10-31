@@ -8,7 +8,7 @@ const { completeFrontend } = require('./complete-frontend.cjs');
 function copyStandalone(source, destination, frontend, { platform = process.platform, arch = process.arch } = {}) {
   if (!fs.existsSync(path.join(source, 'server.js'))) throw new Error(`server.js ausente em ${source}. Execute o build standalone.`);
   if (fs.existsSync(destination)) throw new Error(`O destino deve estar vazio: ${destination}`);
-  console.log('[standalone] Materializando os links/junctions do pnpm…');
+  console.log('[standalone] Copiando o standalone hoisted (sem links/junctions)…');
   copyMaterialized(source, destination);
   const packages = completeFrontend(frontend, destination, platform, arch);
   console.log(`[standalone] ${packages} pacotes complementados; validando o staging isolado…`);

@@ -19,7 +19,17 @@ jobs:
         shell: pwsh
         run: |
           npm install --global pnpm@11.25.0
-          pnpm --dir frontend install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Test-Path -LiteralPath 'frontend/node_modules') {
+            Remove-Item -LiteralPath 'frontend/node_modules' -Recurse -Force -ErrorAction Stop
+          }
+          if (Test-Path -LiteralPath 'frontend/.next') {
+            Remove-Item -LiteralPath 'frontend/.next' -Recurse -Force -ErrorAction Stop
+          }
+          pnpm --dir frontend install --frozen-lockfile --config.node-linker=hoisted
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node -e "const m = JSON.parse(require('node:fs').readFileSync('frontend/node_modules/.modules.yaml', 'utf8')); if (m.nodeLinker !== 'hoisted') throw new Error('O frontend deve usar nodeLinker=hoisted.'); console.log('Instalação hoisted confirmada: ' + m.packageManager);"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm --prefix windows-app ci
       - name: Montar aplicativo
         shell: pwsh

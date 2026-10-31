@@ -6,52 +6,42 @@ const { copyMaterialized } = require('./frontend-files.cjs');
 
 function locate(name, from) {
   const require = createRequire(path.join(from, 'package.json'));
-  // Alguns binários @img/sharp-* não exportam "." nem "./package.json".
-  // A ferramenta de montagem pode ler o manifesto pelo mesmo caminho de busca do Node.
+  // Pacotes nativos @img/sharp-* não necessariamente exportam "." ou "./package.json".
   for (const directory of require.resolve.paths(name) || []) {
     const candidate = path.join(directory, ...name.split('/'));
+    const stat = fs.lstatSync(candidate, { throwIfNoEntry: false });
+    if (!stat) continue;
+    if (stat.isSymbolicLink()) throw new Error(`Pacote ${name} ainda usa link/junction. Instale com --config.node-linker=hoisted.`);
     const manifest = path.join(candidate, 'package.json');
-    if (fs.existsSync(manifest) && JSON.parse(fs.readFileSync(manifest, 'utf8')).name === name) return fs.realpathSync(candidate);
+    if (fs.existsSync(manifest) && JSON.parse(fs.readFileSync(manifest, 'utf8')).name === name) return candidate;
   }
   throw new Error(`Pacote ${name} não localizado a partir de ${from}`);
 }
 
 function completeFrontend(root, destination, platform = process.platform, arch = process.arch) {
-  const versions = new Map();
-  // Mantém os contextos de resolução. Versões diferentes ficam aninhadas no pacote que as utiliza.
-  // Assim não se força uma versão única para todas as dependências do pnpm.
-  function copy(name, from, owner) {
+  const frontend = path.resolve(root);
+  const copied = new Set();
+  function copy(name, from) {
     const source = locate(name, from);
+    const relative = path.relative(frontend, source);
+    if (!relative.startsWith('node_modules' + path.sep)) throw new Error(`Dependência ${name} está fora do frontend: ${source}`);
+    if (copied.has(source)) return;
+    copied.add(source);
+    // Reproduzir o layout hoisted existente, inclusive versões aninhadas.
+    // Não há reconstrução da árvore .pnpm nem escolha manual de versões/owners.
+    copyMaterialized(source, path.join(destination, relative), { excludeNodeModules: true });
     const metadata = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
-    const nodeModules = path.join(destination, 'node_modules');
-    let target = path.join(nodeModules, ...name.split('/'));
-    if (owner) {
-      try {
-        const existing = locate(name, owner);
-        if (path.resolve(existing).startsWith(path.resolve(destination) + path.sep)
-          && JSON.parse(fs.readFileSync(path.join(existing, 'package.json'), 'utf8')).version === metadata.version) target = existing;
-        else target = path.join(owner, 'node_modules', ...name.split('/'));
-      } catch { target = path.join(owner, 'node_modules', ...name.split('/')); }
-    }
-    const key = path.resolve(target);
-    if (versions.has(key)) {
-      if (versions.get(key) !== metadata.version) throw new Error(`Versões incompatíveis em ${target}`);
-      return;
-    }
-    versions.set(key, metadata.version);
-    copyMaterialized(source, target, { excludeNodeModules: true });
-    for (const dependency of Object.keys(metadata.dependencies || {})) copy(dependency, source, target);
-    // O loader do sharp usa estes nomes dinamicamente; o tracing não é suficiente.
+    for (const dependency of Object.keys(metadata.dependencies || {})) copy(dependency, source);
     if (name === 'sharp') {
       const variant = platform === 'linux' && !process.report.getReport().header.glibcVersionRuntime ? 'linuxmusl' : platform;
-      copy(`@img/sharp-${variant}-${arch}`, source, target);
+      copy(`@img/sharp-${variant}-${arch}`, source);
       const vips = `@img/sharp-libvips-${variant}-${arch}`;
-      if (metadata.optionalDependencies?.[vips]) copy(vips, source, target);
+      if (metadata.optionalDependencies?.[vips]) copy(vips, source);
     }
   }
-  for (const name of ['next', 'react', 'react-dom']) copy(name, root);
-  copy('sharp', locate('next', root));
-  return versions.size;
+  for (const name of ['next', 'react', 'react-dom']) copy(name, frontend);
+  copy('sharp', locate('next', frontend));
+  return copied.size;
 }
 if (require.main === module) {
   try {

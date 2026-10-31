@@ -15,17 +15,16 @@ function pkg(folder, name, version = '1.0.0', dependencies = {}) {
   write(path.join(folder, 'index.js'), `module.exports=${JSON.stringify(version)};`);
 }
 
-test('materializa junctions pnpm, mantém dependências repetidas e binários, sem .env', t => {
+test('copia árvore hoisted independente, preservando dependências e binários, sem .env', t => {
   const root = temp(t), source = path.join(root, 'source'), destination = path.join(root, 'stage');
-  const react = path.join(source, 'node_modules/.pnpm/react/node_modules/react');
+  const react = path.join(source, 'node_modules/react');
   pkg(react, 'react');
   write(path.join(source, 'server.js'), "module.exports=require('react');");
   write(path.join(source, '.env.local'), 'SEGREDO=nao-copiar');
   write(path.join(source, '.ENV.TEST'), 'SEGREDO=nao-copiar');
   write(path.join(react, '.env.production'), 'SEGREDO=nao-copiar');
   write(path.join(react, 'binding.node'), Buffer.from([0x4d, 0x5a, 1, 2]));
-  fs.symlinkSync(react, path.join(source, 'node_modules/react'), 'junction');
-  fs.symlinkSync(react, path.join(source, 'node_modules/alias-react'), 'junction');
+  fs.cpSync(react, path.join(source, 'node_modules/alias-react'), { recursive: true });
   copyMaterialized(source, destination);
   assertMaterialized(destination);
   assert.equal(fs.existsSync(path.join(destination, '.env.local')), false);
@@ -38,21 +37,29 @@ test('materializa junctions pnpm, mantém dependências repetidas e binários, s
   assert.equal(require(path.join(destination, 'node_modules/alias-react')), '1.0.0');
 });
 
-test('ciclo real falha antes da cópia, sem ignorar a dependência', t => {
+test('junction cíclico é rejeitado sem seguir o alvo ou omitir a dependência', t => {
   const root = temp(t), source = path.join(root, 'source'); fs.mkdirSync(source);
   fs.symlinkSync(source, path.join(source, 'ciclo'), 'junction');
-  assert.throws(() => copyMaterialized(source, path.join(root, 'stage')), /circular/);
-  assert.equal(fs.existsSync(path.join(root, 'stage')), false);
+  assert.throws(() => copyMaterialized(source, path.join(root, 'stage')), /hoisted/);
+  assert.equal(fs.existsSync(path.join(root, 'stage/ciclo/ciclo')), false);
 });
 
 test('link quebrado e alias para segredo são erros explícitos', t => {
   const root = temp(t), source = path.join(root, 'source'); fs.mkdirSync(source);
   fs.symlinkSync(path.join(root, 'ausente'), path.join(source, 'dependencia'), 'junction');
-  assert.throws(() => copyMaterialized(source, path.join(root, 'stage')), /materializar/);
+  assert.throws(() => copyMaterialized(source, path.join(root, 'stage')), /hoisted/);
   fs.unlinkSync(path.join(source, 'dependencia'));
   fs.mkdirSync(path.join(root, '.secrets'));
   fs.symlinkSync(path.join(root, '.secrets'), path.join(source, 'alias'), 'junction');
-  assert.throws(() => copyMaterialized(source, path.join(root, 'stage')), /privado/);
+  assert.throws(() => copyMaterialized(source, path.join(root, 'stage')), /hoisted/);
+});
+
+test('react com junction não é pulado na complementação: exige reinstalação hoisted', t => {
+  const root = temp(t), source = path.join(root, 'frontend'), stage = path.join(root, 'stage');
+  pkg(path.join(source, 'node_modules/next'), 'next');
+  const react = path.join(root, 'react-real'); pkg(react, 'react');
+  fs.symlinkSync(react, path.join(source, 'node_modules/react'), 'junction');
+  assert.throws(() => completeFrontend(source, stage), /react.*hoisted/);
 });
 
 test('complementação preserva versões distintas no contexto correto', t => {
@@ -76,7 +83,7 @@ test('complementação preserva versões distintas no contexto correto', t => {
   const next = createRequire(path.join(stage, 'node_modules/next/package.json'));
   const sharp = createRequire(path.join(stage, 'node_modules/sharp/package.json'));
   assert.equal(next('semver'), '1.0.0'); assert.equal(sharp('semver'), '2.0.0');
-  assert.ok(next('a').startsWith(stage + path.sep), 'ciclo declarado A/B deve reutilizar o ancestral empacotado');
+  assert.ok(next('a').startsWith(stage + path.sep), 'ciclo declarado A/B deve reutilizar o pacote correspondente no staging');
   assertMaterialized(stage);
 });
 
