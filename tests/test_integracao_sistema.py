@@ -27,29 +27,29 @@ class TestIntegracaoSistema(unittest.TestCase):
         return request('POST','/servidores/importar/preview',body=multipart(content,filename=filename,mime='application/vnd.ms-excel'),content_type='multipart/form-data; boundary=test')
 
     def test_preview_confirmacao_idempotente_xlsx_preserva_zeros_e_conflitos(self):
-        data=self.sheet([['Ana Silva','0012345','00123456789','ana@example.com','40h','Não'],['Bruno Costa','0012346','00123456789','bruno@example.com','20h','Sim'],['Inválido','0012347','','bad','40h','Não']])
+        data=self.sheet([['Servidor Sintético A','9900001','00000000000','servidor.a@example.test','40h','Não'],['Servidor Sintético B','9900002','00000000000','servidor.b@example.test','20h','Sim'],['Linha Sintética Inválida','9900003','','invalido@example.test','40h','Não']])
         status,preview=self.preview(data);self.assertEqual(status,200,preview)
         self.assertTrue(all(not row['valido'] for row in preview['registros']))
-        data=self.sheet([['Ana Silva','0012345','00123456789','ana@example.com','40h','Não']])
+        data=self.sheet([['Servidor Sintético A','9900001','00000000000','servidor.a@example.test','40h','Não']])
         status,preview=self.preview(data);self.assertEqual(status,200)
         self.assertEqual(request('GET','/servidores')[1],[])
-        self.assertEqual(preview['registros'][0]['cpf'],'00123456789')
+        self.assertEqual(preview['registros'][0]['cpf'],'00000000000')
         key=uuid4().hex;payload={'token':preview['token']}
         first=request('POST','/servidores/importar/confirm',payload,headers={'Idempotency-Key':key})
         self.assertEqual(first[0],200,first);self.assertEqual(first[1]['novos'],1)
         self.assertEqual(request('POST','/servidores/importar/confirm',payload,headers={'Idempotency-Key':key}),first)
-        records=request('GET','/servidores')[1];self.assertEqual(records[0]['matricula'],'0012345');self.assertEqual(records[0]['carga_horaria'],40)
+        records=request('GET','/servidores')[1];self.assertEqual(records[0]['matricula'],'9900001');self.assertEqual(records[0]['carga_horaria'],40)
         again=self.preview(data)[1];self.assertEqual(again['registros'][0]['acao'],'ignorado')
-        changed=self.sheet([['Ana Atualizada','0012345','00123456789','nova@example.com','20h','Sim']])
+        changed=self.sheet([['Servidor Sintético A Atualizado','9900001','00000000000','novo@example.test','20h','Sim']])
         preview=self.preview(changed)[1];self.assertEqual(preview['registros'][0]['acao'],'atualizado')
         self.assertEqual(request('POST','/servidores/importar/confirm',{'token':preview['token']},headers={'Idempotency-Key':'atualizar'})[1]['atualizados'],1)
-        conflict=self.sheet([['Outra Pessoa','0012999','00123456789','outra@example.com','40h','Não']])
+        conflict=self.sheet([['Outro Servidor Sintético','9900099','00000000000','conflito@example.test','40h','Não']])
         preview=self.preview(conflict)[1];self.assertFalse(preview['registros'][0]['valido']);self.assertIn('outra matrícula',preview['registros'][0]['motivo'])
 
-    def test_xls_real_importado_e_preview_expirado(self):
+    def test_xls_sintetico_importado_e_preview_expirado(self):
         status,preview=self.preview(Path('tests/fixtures/servidores.xls').read_bytes(),'servidores.xls')
-        self.assertEqual(status,200,preview);self.assertEqual(preview['registros'][0]['matricula'],'0012345')
-        self.assertEqual(preview['registros'][0]['cpf'],'00123456789')
+        self.assertEqual(status,200,preview);self.assertEqual(preview['registros'][0]['matricula'],'9999001')
+        self.assertEqual(preview['registros'][0]['cpf'],'00000000000')
         with self.connect() as conn: conn.execute("UPDATE importacao_servidor_preview SET expira_em=clock_timestamp()-interval '1 second' WHERE token=%s",(preview['token'],))
         self.assertEqual(request('POST','/servidores/importar/confirm',{'token':preview['token']},headers={'Idempotency-Key':'expirado'})[0],410)
 
@@ -82,10 +82,11 @@ class TestIntegracaoSistema(unittest.TestCase):
         with patch('backend.routes.integracao.enviar_apos_confirmacao',return_value={'status':'NAO_CONFIGURADO','mensagem':'Teste'}):
             request('PATCH',f'/folhas/{identifier}',{'id_servidor':person,'competencia':'2026-09'})
         with self.connect() as conn:
-            log=conn.execute("INSERT INTO envio(id_folha,email_destino,status_envio,mensagem_erro) VALUES(%s,'ana@example.com','ERRO','Falha teste') RETURNING id_envio",(identifier,)).fetchone()[0]
-        status,logs=request('GET','/emails/historico?cpf=00000012345&status=ERRO&competencia=2026-09')
+            log=conn.execute("INSERT INTO envio(id_folha,email_destino,status_envio,mensagem_erro) VALUES(%s,'destinatario@example.test','ERRO','Falha teste') RETURNING id_envio",(identifier,)).fetchone()[0]
+        cpf_sintetico=self.payload['registration'].zfill(11)
+        status,logs=request('GET',f'/emails/historico?cpf={cpf_sintetico}&status=ERRO&competencia=2026-09')
         self.assertEqual(status,200);self.assertEqual(logs[0]['id'],log)
-        self.assertEqual(request('GET','/emails/historico?nome=Outro')[1],[])
+        self.assertEqual(request('GET','/emails/historico?nome=Servidor Inexistente')[1],[])
         payload={'log_ids':[log]};headers={'Idempotency-Key':'reenvio'}
         first=request('POST','/emails/reenviar-erros',payload,headers=headers)
         self.assertEqual(first[0],200,first);self.assertEqual(first[1]['reenviados'],1)
