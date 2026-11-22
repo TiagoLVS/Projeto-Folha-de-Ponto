@@ -1,6 +1,6 @@
 # Banco atualizado e migrações
 
-`database/folha_pontos.sql` contém a instalação completa e independente das migrações anteriores. Bancos existentes usam somente 001 → 002 → 003 → 004 → 005 → 006, nessa ordem. Requer PostgreSQL 17+ em UTF-8 (normalização Unicode nativa); testes em PostgreSQL 18.
+`database/folha_pontos.sql` contém o schema base completo até a versão 007 e é independente das migrações anteriores. Bancos existentes usam 001 → 002 → 003 → 004 → 005 → 006 → 007 → 008, nessa ordem. A migração 008 adiciona as tabelas de autenticação ao mesmo banco. Requer PostgreSQL 17+ em UTF-8 (normalização Unicode nativa); testes em PostgreSQL 18.
 
 ## Instalação nova
 
@@ -10,7 +10,7 @@ Crie um banco vazio e execute como proprietário:
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 --single-transaction -f database/folha_pontos.sql
 ```
 
-Não aplique esse arquivo sobre tabelas existentes. O resultado contém cadastro, competência, recebidas, envios, idempotência, calendário, importações, geração, revisões e lease.
+Não aplique esse arquivo sobre tabelas existentes. O resultado contém cadastro, competência, recebidas, envios, idempotência, calendário, importações, geração, revisões, lease e conta de e-mail. As tabelas de autenticação são adicionadas pela migração 008; na instalação Windows, o inicializador aplica essa migração ao preparar o banco novo.
 
 ## Banco existente
 
@@ -24,9 +24,11 @@ psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/mig
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/004_refinamentos.sql
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/005_envio_modelos.sql
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/006_dados_funcionais_servidor.sql
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/007_conta_email.sql
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/008_autenticacao.sql
 ```
 
-Se 001/002 já estavam aplicadas, podem ser repetidas conforme as verificações dos respectivos arquivos. 003 é transacional, identifica reaplicação e verifica estruturas essenciais. Objetos parciais sem marcador causam erro/rollback; não há DROP de tabelas ou exclusão de dados. A inicialização da aplicação não migra automaticamente.
+Se 001/002 já estavam aplicadas, podem ser repetidas conforme as verificações dos respectivos arquivos. 003 é transacional, identifica reaplicação e verifica estruturas essenciais. Objetos parciais sem marcador causam erro/rollback; não há DROP de tabelas ou exclusão de dados. No modo de desenvolvimento, `bash iniciar.sh --migrar` autoriza as migrações pendentes; sem essa opção, o diagnóstico não altera o banco. O runtime Windows aplica migrações pendentes do banco existente somente após criar e validar um backup.
 
 Confira:
 
@@ -34,7 +36,7 @@ Confira:
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -c "SELECT * FROM schema_migration ORDER BY versao;"
 ```
 
-Devem constar 002_calendario, 003_integracao, 004_refinamentos, 005_envio_modelos e 006_dados_funcionais (001 usa seu controle anterior). Em schemas personalizados, preserve o mesmo search_path da aplicação. Para conferir a versão e o encoding, use SHOW server_version e SHOW server_encoding.
+Devem constar 002_calendario, 003_integracao, 004_refinamentos, 005_envio_modelos, 006_dados_funcionais, 007_conta_email e 008_autenticacao (001 usa seu controle anterior). Em schemas personalizados, preserve o mesmo search_path da aplicação. Para conferir a versão e o encoding, use SHOW server_version e SHOW server_encoding.
 
 ## Estrutura preservada
 

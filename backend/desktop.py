@@ -6,6 +6,7 @@ from starlette.staticfiles import StaticFiles
 
 # Mesmo contrato /api usado pelos serviços compartilhados e pelos proxies Next.
 ROUTES = [
+    (r'/api/auth/(status|bootstrap|login|logout|users)', r'/auth/\1', {'GET', 'POST'}),
     (r'/api/servers', '/servidores', {'GET', 'POST'}),
     (r'/api/servers/import/(preview|confirm)', r'/servidores/importar/\1', {'POST'}),
     (r'/api/servers/(\d+)', r'/servidores/\1', {'PUT', 'DELETE'}),

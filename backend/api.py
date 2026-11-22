@@ -213,7 +213,7 @@ class LeaseMiddleware:
     def __init__(self, app): self.app=app
 
     async def __call__(self, scope, receive, send):
-        if scope['type']!='http' or scope['method'] in {'GET','HEAD','OPTIONS'} or scope['path'].startswith('/sistema/lock') or scope['path']=='/emails/conta' or scope['path']=='/folhas/geradas/download-lote':
+        if scope['type']!='http' or scope['method'] in {'GET','HEAD','OPTIONS'} or scope['path'].startswith('/sistema/lock') or scope['path']=='/emails/conta' or scope['path'].startswith('/auth/') or scope['path']=='/folhas/geradas/download-lote':
             return await self.app(scope,receive,send)
         conn=None
         try:
@@ -256,3 +256,8 @@ class ContaEmailMiddleware:
             await self.app(scope,receive,send)
         finally:conta_email.CLIENTE_HTTP.reset(token)
 app.add_middleware(ContaEmailMiddleware)
+
+# Adicionado por último para a verificação ocorrer ANTES de outras operações de banco.
+from backend.auth import router as auth_router, AuthMiddleware
+app.include_router(auth_router)
+app.add_middleware(AuthMiddleware)

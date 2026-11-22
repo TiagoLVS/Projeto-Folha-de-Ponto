@@ -18,7 +18,7 @@ Escolha **Este é o computador principal** em apenas uma máquina. O aplicativo 
 
 - Mantenha o aplicativo aberto e o computador ligado durante o uso da equipe.
 - Permita acesso na **rede privada** quando o Firewall do Windows solicitar.
-- No menu **Aplicativo → Exportar conexão da equipe**, salve o arquivo JSON e entregue-o às outras máquinas.
+- No menu **Aplicativo → Exportar conexão da equipe**, selecione o endereço IPv4 da rede correta (se houver várias interfaces), salve o arquivo JSON e entregue-o às outras máquinas.
 - Fechar o aplicativo principal encerra os serviços e interrompe o acesso da equipe, preservando os dados.
 
 O banco e os PDFs existentes em outra instalação não são copiados automaticamente. Para transferi-los, o responsável precisa restaurar um backup e ajustar os caminhos dos documentos. Não distribua o banco antigo dentro do ZIP.
@@ -29,7 +29,7 @@ Abra o mesmo executável, escolha **Conectar ao computador principal** e selecio
 
 Todos acessam os mesmos cadastros, PDFs e histórico. O banco não é duplicado nos computadores da equipe. A comunicação usa HTTPS, com certificado verificado pelo aplicativo a partir do arquivo de conexão. Se o endereço da máquina principal mudar, exporte e importe a conexão novamente.
 
-Não há login de acesso ao sistema. O compartilhamento é destinado à rede local privada e confiável da equipe. O controle de edição existente continua evitando alterações concorrentes.
+Há **login obrigatório no modo Windows**: na primeira abertura do computador principal, crie o administrador com senha de pelo menos 12 caracteres. Entre na conta, use **Novo usuário** para cadastrar os demais integrantes, e use **Sair** para encerrar a sessão. Os secundários entram com sua própria conta, sem PostgreSQL local. As sessões expiram em 12 horas. O controle de edição existente continua evitando alterações concorrentes.
 
 ## Conectar Gmail
 
@@ -70,3 +70,7 @@ Atualize somente a pasta extraída do programa. As migrações do banco privado 
 Use **Aplicativo → Abrir pasta de suporte**. Os registros do principal ficam em `principal\logs`. Informe a mensagem apresentada; não envie senhas nem arquivos privados.
 
 O pacote para entrega fica em `windows-app/release/`, acompanhado de um arquivo SHA-256. [Documentação de montagem e testes](docs/WINDOWS-EMPACOTAMENTO.md).
+
+## Ajustes de banco, rede e login
+
+Confira a orientação completa e o roteiro de validação em [`docs/TRES-AJUSTES-COMO-VALIDAR.md`](docs/TRES-AJUSTES-COMO-VALIDAR.md). Para um banco existente, faça backup antes de atualizar; a nova migração de autenticação é a `008`.

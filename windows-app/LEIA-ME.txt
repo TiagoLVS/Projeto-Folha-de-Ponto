@@ -45,3 +45,5 @@ DISTRIBUIÇÃO
 Inclui Electron/Chromium/Node.js, Python, PostgreSQL e Tesseract e dependências.
 Consulte as licenças incluídas nas respectivas pastas e nos arquivos de dependências.
 O código usa PyMuPDF; confira sua licença AGPL ou comercial antes da distribuição.
+
+LOGIN: na primeira abertura do computador principal, crie o administrador; depois entre e cadastre os demais usuários pelo botão "Novo usuário". As máquinas secundárias usam as mesmas contas. Veja docs/TRES-AJUSTES-COMO-VALIDAR.md na pasta de código-fonte.
