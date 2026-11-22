@@ -1,6 +1,6 @@
 # Ponto Docente — ajustes realizados e pendências (22/11/2026)
 
-> **Status:** desenvolvimento revisado e testes locais concluídos parcialmente. **Não homologado para produção.** A branch foi criada a partir de `main` para preservar a versão original. A publicação do código-fonte UAT atualizado nesta branch ainda depende da sincronização da cópia local `PontoDocente-codigo-fonte-UAT-2026-11-22.zip`.
+> **Status:** desenvolvimento revisado e testes locais concluídos parcialmente. **Não homologado para produção.** A branch foi criada a partir de `main` para preservar a versão original. O código-fonte UAT atualizado foi publicado nesta branch em 22/11/2026, preservando a `main`. A revisão e a homologação em Windows continuam pendentes.
 
 ## Objetivo da branch
 
@@ -60,7 +60,7 @@ Registrar e publicar separadamente os três ajustes solicitados: (1) banco de da
 - Revisar possível diferença de preenchimento visual em domingo da folha gerada e campos cadastrais vazios, se reproduzida.
 - Registrar resultados de testes finais no documento de homologação.
 
-## Documentação da cópia UAT
+## Documentação publicada na branch
 
 - `docs/RELATORIO-ENTREGA-TRES-AJUSTES.md`
 - `docs/RELATORIO-TESTES-FUNCIONAIS.md`
@@ -68,3 +68,9 @@ Registrar e publicar separadamente os três ajustes solicitados: (1) banco de da
 - `docs/REVISAO-INTEGRACAO-LINUX.md`
 
 **Segurança da publicação:** não adicionar `.env`, segredos/credenciais SMTP, bancos de dados, arquivos de professores reais, diretórios `.smtp-capture`, `.venv`, `node_modules`, caches ou saídas de build. Verificar o diff antes de fazer push e não mesclar na `main` sem revisão.
+
+## Observações após publicação
+
+- A fixture `tests/fixtures/servidores.xls` foi substituída por dados sintéticos; dois exemplos de planilha e dois PDFs de teste potencialmente sensíveis foram removidos desta branch.
+- O teste direcionado de leitura da fixture sintética passou. A suíte de integração dependente do PostgreSQL não foi repetida durante o push, pois `FOLHA_TEST_DSN` não estava configurada.
+- **Atenção:** arquivos anteriores potencialmente identificáveis continuam no histórico público da `main`. A remoção nesta branch não elimina essas versões; o proprietário deve avaliar necessidade de remediação do histórico.
