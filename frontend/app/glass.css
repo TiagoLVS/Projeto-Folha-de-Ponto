@@ -91,6 +91,7 @@ tbody tr:hover { background: #ffffff80; }
 .status-done { background: #def1e8cc; color: #376f55; }
 .status-progress { background: #ddebfacc; color: #3b679a; }
 .status-empty { background: #fff0d2cc; color: #896223; }
+.status-review { background: #fff0d2cc; color: #896223; }
 .icon-button { min-width: 40px; min-height: 40px; border-radius: 50%; color: #5c7c99; }
 .icon-button:hover { background: #ffffffc9; border-color: #fff; }
 .table-footer { border-top-color: #dce7ef; padding: 18px 24px; }

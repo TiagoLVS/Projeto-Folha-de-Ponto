@@ -39,7 +39,7 @@
 .dark .calendar-day{background:var(--surface);border-color:var(--line);color:var(--text-main)}
 .dark .calendar-day.is-weekend{background:#162638}.dark .calendar-day.is-selected{background:#294862;outline-color:#90c7ff}.dark .calendar-day:hover{border-color:#90c7ff}
 .dark .event-tag{background:#344c62;color:#e1eaf4}.dark .type-FERIADO{background:#65383f;color:#ffced2}.dark .type-RECESSO{background:#274975;color:#cfe3ff}.dark .type-PONTO_FACULTATIVO{background:#594c2a;color:#ffe3a0}
-.dark .status-done{background:#214f47;color:#b2e5d4}.dark .status-progress{background:#294e72;color:#c1dfff}.dark .status-empty{background:#34485d;color:#d0dce8}.dark .status-error,.dark .form-error{background:#57323c;color:#ffd2d5;border-color:#98606b}
+.dark .status-done{background:#214f47;color:#b2e5d4}.dark .status-progress{background:#294e72;color:#c1dfff}.dark .status-empty{background:#34485d;color:#d0dce8}.dark .status-review{background:#594c2a;color:#ffe3a0}.dark .status-error,.dark .form-error{background:#57323c;color:#ffd2d5;border-color:#98606b}
 .dark .pending-alert{background:#4b432c;border-color:#8b7850;color:#f4dfad}.dark .pending-alert :is(p,strong,button){color:#f4dfad}
 .dark .audience-options label{border-color:var(--line)}.dark .audience-options label:has([data-state=checked]){background:#304d69;border-color:#8bb8e1}
 .dark :is(.upload-dropzone,.sheet-preview,.loading-screen){background:#162638;border-color:var(--line);color:var(--text-secondary)}
