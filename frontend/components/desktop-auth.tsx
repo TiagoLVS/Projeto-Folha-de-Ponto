@@ -63,7 +63,12 @@ export function DesktopAuth({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    refresh().catch((cause: Error) => setError(cause.message));
+    let active = true;
+    void loadAuthStatus().then(
+      nextStatus => { if (active) setStatus(nextStatus); },
+      (cause: Error) => { if (active) setError(cause.message); },
+    );
+    return () => { active = false; };
   }, []);
 
   useEffect(() => watchForExpiredSession(loadAuthStatus, expired => {
