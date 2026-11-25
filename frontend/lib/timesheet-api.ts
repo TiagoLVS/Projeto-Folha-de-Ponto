@@ -1,6 +1,6 @@
 import { newId } from './client-session.ts';
 import { apiRequest } from './api-client.ts';
-import type { ConfirmationEmail, Professor, Sheet } from './ponto.ts';
+import { timesheetStatusFromOcr, type ConfirmationEmail, type Professor, type Sheet } from './ponto.ts';
 
 // The supplied PostgreSQL schema and confirmation endpoint use OK for validated sheets.
 // Set NEXT_PUBLIC_VALIDATED_OCR_STATUS only if the backend contract changes; never trim its value.
@@ -28,9 +28,7 @@ export function fromRemoteSheet(data: RemoteSheet): Sheet {
     || !Number.isFinite(Date.parse(data.atualizado_em))) throw new Error('Registro de folha inválido no servidor.');
   return {
     id: String(data.id_folha), backendId: data.id_folha, statusOcr: data.status_ocr,
-    status: data.status_ocr === VALIDATED_OCR_STATUS || data.status_ocr === 'OK' ? 'identified'
-      : data.status_ocr === 'PROCESSANDO' ? 'processing'
-      : ['ERRO', 'REVISAR'].includes(data.status_ocr) ? 'error' : 'uploaded',
+    status: timesheetStatusFromOcr(data.status_ocr, VALIDATED_OCR_STATUS),
     attachment: { name: data.nome_arquivo, size: data.tamanho_arquivo, type: 'application/pdf', url: `/api/timesheets/${data.id_folha}/file` },
     updatedAt: data.atualizado_em, confirmedAt: data.confirmado_em ?? undefined, email: data.envio ?? undefined,
     error: data.mensagem ?? undefined,

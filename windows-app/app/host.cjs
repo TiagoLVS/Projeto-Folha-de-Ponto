@@ -6,7 +6,14 @@ const {fingerprint}=require('./network.cjs');
 const {runCommand}=require('./commands.cjs');
 const {alive,within,track,terminate,waitPidExit,closeLog}=require('./lifecycle.cjs');
 function freePort(){return new Promise((resolve,reject)=>{const server=net.createServer();server.on('error',reject);server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port));});});}
+function selectableAddresses(interfaces=os.networkInterfaces()){
+ return Object.entries(interfaces).flatMap(([name,values])=>(values||[])
+  .filter(item=>item&&item.family==='IPv4'&&!item.internal&&privateAddress(item.address))
+  .map(item=>({name,address:item.address})));
+}
 function addresses(){return Object.values(os.networkInterfaces()).flat().filter(v=>v&&v.family==='IPv4'&&!v.internal).map(v=>v.address);}
+
+function isLoopback(address){const ip=(address||'').replace(/^::ffff:/,'');return ip==='::1'||ip.startsWith('127.');}
 function privateAddress(address){const ip=(address||'').replace(/^::ffff:/,'');return ip==='::1'||ip.startsWith('127.')||ip.startsWith('10.')||ip.startsWith('192.168.')||/^172\.(1[6-9]|2\d|3[01])\./.test(ip)||/^f[cd][a-f0-9]{2}:/i.test(ip);}
 async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,postgresOptions=''}){
  fs.mkdirSync(folder,{recursive:true});fs.mkdirSync(path.join(folder,'logs'),{recursive:true});
@@ -23,7 +30,8 @@ async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,post
  const env={...process.env,DB_HOST:'127.0.0.1',DB_PORT:String(dbPort),DB_USER:'ponto',DB_NAME:'ponto_docente',DB_PASSWORD:password,
   BACKEND_PORT:String(apiPort),BACKEND_URL:`http://127.0.0.1:${apiPort}`,PONTO_DATA_DIR:path.join(folder,'data'),PONTO_STATIC_FRONTEND:path.join(resources,'frontend'),
   EMAIL_CREDENTIALS_KEY_FILE:path.join(folder,'secrets','email.key'),PONTO_PG_DUMP:path.join(pgbin,'pg_dump.exe'),
-  DIGEP_MODO_TESTE:'false',SMTP_HOST:'smtp.gmail.com',SMTP_PORT:'465',SMTP_SECURITY:'ssl',
+  PONTO_PG_RESTORE:path.join(pgbin,'pg_restore.exe'),
+  PONTO_AUTH_REQUIRED:'true',PONTO_DESKTOP_MODE:'1',DIGEP_MODO_TESTE:'false',SMTP_HOST:'smtp.gmail.com',SMTP_PORT:'465',SMTP_SECURITY:'ssl',
   TESSERACT_CMD:path.join(resources,'runtime','tesseract','tesseract.exe'),TESSDATA_PREFIX:path.join(resources,'runtime','tesseract','tessdata'),OCR_LANG:'por',
   PYTHONUTF8:'1',PGPASSWORD:password};
  function startService(command,args,overrides={}){
@@ -115,7 +123,8 @@ async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,post
   gateway=https.createServer({cert,key:fs.readFileSync(path.join(tlsFolder,'key.pem')),minVersion:'TLSv1.2'},(request,response)=>{
    if(!privateAddress(request.socket.remoteAddress)){response.writeHead(403);return response.end('Acesso permitido somente na rede local.');}
    if(request.url==='/_ponto/status'){response.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});return response.end(JSON.stringify({application:'ponto-docente-undf',protocol:1}));}
-   const headers={...request.headers};delete headers.connection;
+   const headers={...request.headers};delete headers.connection;delete headers['x-ponto-local'];
+   headers['x-ponto-local']=isLoopback(request.socket.remoteAddress)?'1':'0';
    const upstream=http.request({host:'127.0.0.1',port:apiPort,path:request.url,method:request.method,headers},remote=>{response.writeHead(remote.statusCode,remote.headers);remote.pipe(response);});
    upstream.on('error',()=>{if(!response.headersSent)response.writeHead(502);response.end('O sistema está indisponível. Tente novamente.');});
    response.on('close',()=>upstream.destroy());request.pipe(upstream);
@@ -123,7 +132,12 @@ async function start({resources,folder,encrypt,decrypt,log,gatewayPort=5173,post
   gateway.requestTimeout=960000;
   await new Promise((resolve,reject)=>{gateway.once('error',reject);gateway.listen(gatewayPort,'0.0.0.0',resolve);});
   for(const item of [backend])item.on('exit',()=>{if(!closing){log('Um serviço foi encerrado. Feche e abra o aplicativo novamente.');gateway?.close();}});
-  return {url:`https://localhost:${gatewayPort}`,fingerprint:pin,processStatus,exportConnection:()=>({url:`https://${addresses()[0]||os.hostname()}:${gatewayPort}`,fingerprint:pin}),stop};
+  return {url:`https://localhost:${gatewayPort}`,fingerprint:pin,processStatus,
+   connectionAddresses:()=>selectableAddresses(),
+   exportConnection:(address)=>{
+    if(!selectableAddresses().some(item=>item.address===address))throw new Error('Selecione um IP privado ativo na rede local.');
+    return {url:`https://${address}:${gatewayPort}`,fingerprint:pin};
+   },stop};
  }catch(error){try{await stop();}catch(shutdown){throw new AggregateError([error,shutdown],'Inicialização e encerramento falharam.',{cause:error});}throw error;}
 }
-module.exports={start,privateAddress,freePort};
+module.exports={start,privateAddress,isLoopback,selectableAddresses,freePort};

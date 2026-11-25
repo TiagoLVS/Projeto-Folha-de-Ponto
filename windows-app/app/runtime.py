@@ -18,28 +18,58 @@ def verificar_postgres():
 
 
 def preparar_banco():
+    """Cria banco privado e aplica migrações versionadas após backup confiável."""
+    import datetime
+    import subprocess
     import psycopg
     from backend.startup import MIGRATIONS, ROOT
-    config=dict(host=os.environ['DB_HOST'],port=os.environ['DB_PORT'],dbname='postgres',user=os.environ['DB_USER'],password=os.environ['DB_PASSWORD'])
-    with psycopg.connect(**config,autocommit=True) as conn:
+
+    config = dict(host=os.environ['DB_HOST'], port=os.environ['DB_PORT'],
+                  dbname='postgres', user=os.environ['DB_USER'], password=os.environ['DB_PASSWORD'],
+                  connect_timeout=10)
+    with psycopg.connect(**config, autocommit=True) as conn:
         if not conn.execute("SELECT 1 FROM pg_database WHERE datname='ponto_docente'").fetchone():
             conn.execute('CREATE DATABASE ponto_docente')
-    config['dbname']='ponto_docente'
-    with psycopg.connect(**config,autocommit=True) as conn:
-        if conn.execute("SELECT to_regclass('servidor')").fetchone()[0] is None:
-            conn.execute((ROOT/'database/folha_pontos.sql').read_text(encoding='utf-8'))
-        else:
-            versions={row[0] for row in conn.execute('SELECT versao FROM schema_migration')}
-            pending=[name for version,name in MIGRATIONS if version not in versions]
-            if pending:
-                # Backup obrigatório antes de atualizar o banco privado desta instalação.
-                import subprocess,datetime
-                backup=Path(os.environ['PONTO_DATA_DIR']).parent/'backups'
-                backup.mkdir(exist_ok=True)
-                env={**os.environ,'PGPASSWORD':config['password']}
-                name=backup/(datetime.datetime.now().strftime('%Y%m%d-%H%M%S')+'.dump')
-                subprocess.run([os.environ['PONTO_PG_DUMP'],'-h',config['host'],'-p',config['port'],'-U',config['user'],'-d','ponto_docente','-Fc','-f',str(name)],env=env,check=True)
-                for name in pending:conn.execute((ROOT/'database/migrations'/name).read_text(encoding='utf-8'))
+    config['dbname'] = 'ponto_docente'
+    with psycopg.connect(**config, autocommit=True) as conn:
+        fresh = conn.execute("SELECT to_regclass('servidor')").fetchone()[0] is None
+        if fresh:
+            conn.execute((ROOT / 'database/folha_pontos.sql').read_text(encoding='utf-8'))
+        if conn.execute("SELECT to_regclass('schema_migration')").fetchone()[0] is None:
+            raise RuntimeError('Banco existente sem controle de versões. Faça backup e solicite revisão antes de atualizar.')
+        versions = {row[0] for row in conn.execute('SELECT versao FROM schema_migration')}
+        pending = [(version, name) for version, name in MIGRATIONS if version not in versions]
+        if not pending:
+            print('Banco de dados atualizado.', flush=True)
+            return
+        if not fresh:
+            # Nunca migra um banco existente sem dump íntegro.
+            backup = Path(os.environ['PONTO_DATA_DIR']).parent / 'backups'
+            backup.mkdir(parents=True, exist_ok=True)
+            filename = backup / (datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '.dump')
+            env = {**os.environ, 'PGPASSWORD': config['password']}
+            try:
+                subprocess.run([os.environ['PONTO_PG_DUMP'], '-h', config['host'], '-p', config['port'],
+                                '-U', config['user'], '-d', 'ponto_docente', '-Fc', '-f', str(filename)],
+                               env=env, check=True, timeout=180)
+                if not filename.is_file() or filename.stat().st_size == 0:
+                    raise RuntimeError('Backup vazio: migrações canceladas.')
+                # pg_dump com código zero e arquivo não vazio não garantem que o
+                # archive custom possa ser lido. Valide sua tabela de conteúdo.
+                subprocess.run([os.environ['PONTO_PG_RESTORE'], '--list', str(filename)],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, RuntimeError):
+                filename.unlink(missing_ok=True)
+                raise RuntimeError('O backup obrigatório falhou. O banco não foi atualizado.') from None
+            print('Backup pré-migração salvo em: ' + str(filename), flush=True)
+        for version, name in pending:
+            # Uma instrução SQL de migração por transação; interrupção não grava versão falsa.
+            try:
+                with conn.transaction():
+                    conn.execute((ROOT / 'database/migrations' / name).read_text(encoding='utf-8'))
+            except psycopg.Error as exc:
+                raise RuntimeError(f'Falha na migração {version}. Banco preservado; confira o backup.') from exc
+            print('Migração aplicada: ' + version, flush=True)
 
 
 def certificado(folder,names):

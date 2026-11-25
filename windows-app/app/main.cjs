@@ -36,8 +36,21 @@ async function connect(value){
  for(const contents of [window.webContents])contents.on('did-fail-load',(_event,code,_description,_url,mainFrame)=>{if(mainFrame&&code!==-3)dialog.showMessageBox(window,{type:'error',message:'Não foi possível abrir o sistema.',detail:'Confira se o computador principal está ligado e conectado à mesma rede. Feche e abra o aplicativo para tentar novamente.'});});
  Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'Aplicativo',submenu:[
   {label:'Exportar conexão da equipe',enabled:!!host,click:async()=>{
-   const result=await dialog.showSaveDialog(window,{defaultPath:'conexao-equipe.json',filters:[{name:'Conexão da equipe',extensions:['json']}]});
-   if(!result.canceled&&result.filePath)fs.writeFileSync(result.filePath,JSON.stringify(host.exportConnection(),null,2));
+   try{
+    const options=host.connectionAddresses();
+    if(!options.length)throw new Error('Nenhum endereço IPv4 privado ativo encontrado. Conecte o computador à rede local.');
+    let index=0;
+    if(options.length>1){
+     const choice=await dialog.showMessageBox(window,{type:'question',title:'Escolher rede da equipe',
+      message:'Selecione o endereço da rede que os outros computadores usam.',
+      detail:'Se a máquina tiver Wi-Fi, Ethernet, VPN ou adaptadores virtuais, escolha o IP da rede local compartilhada. Caso não saiba, consulte ipconfig.',
+      buttons:[...options.map(item=>`${item.name}: ${item.address}`),'Cancelar'],cancelId:options.length,defaultId:0});
+     if(choice.response===options.length)return;
+     index=choice.response;
+    }
+    const result=await dialog.showSaveDialog(window,{defaultPath:'conexao-equipe.json',filters:[{name:'Conexão da equipe',extensions:['json']}]});
+    if(!result.canceled&&result.filePath)fs.writeFileSync(result.filePath,JSON.stringify(host.exportConnection(options[index].address),null,2));
+   }catch(error){dialog.showErrorBox('Não foi possível exportar a conexão',error.message);}
   }},
   {label:'Abrir pasta de suporte',click:()=>shell.openPath(app.getPath('userData'))},
   {label:'Redefinir tipo de instalação',click:async()=>{const result=await dialog.showMessageBox(window,{type:'question',buttons:['Cancelar','Redefinir e fechar'],defaultId:0,cancelId:0,message:'Na próxima abertura, escolher outro computador principal?',detail:'Os dados existentes serão preservados. No modo principal, os outros computadores perderão o acesso enquanto o aplicativo estiver fechado.'});if(result.response===1){fs.rmSync(file(),{force:true});app.quit();}}},

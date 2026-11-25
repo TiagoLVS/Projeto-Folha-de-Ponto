@@ -33,9 +33,11 @@ psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/mig
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/004_refinamentos.sql
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/005_envio_modelos.sql
 psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/006_dados_funcionais_servidor.sql
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/007_conta_email.sql
+psql -h localhost -U SEU_USUARIO -d SEU_BANCO -v ON_ERROR_STOP=1 -f database/migrations/008_autenticacao.sql
 ```
 
-O SQL completo é exclusivo para instalações novas. As migrações preservam cadastros, CPF nulo legado, folhas, envios, calendário e modelos gerados. O script de inicialização **não aplica SQL automaticamente**. Detalhes e verificação em [Alterações do banco](ALTERACOES-BANCO.md).
+O SQL completo é exclusivo para instalações novas e inclui a estrutura até 007. A migração 008 adiciona as tabelas de autenticação. As migrações preservam cadastros, CPF nulo legado, folhas, envios, calendário e modelos gerados. O script de inicialização só aplica migrações com autorização explícita (`--migrar` ou confirmação interativa). Detalhes e verificação em [Alterações do banco](ALTERACOES-BANCO.md).
 
 ## Iniciar
 

@@ -27,12 +27,15 @@ test('prévia XLS/XLSX inclui CPF; confirmação envia só token e chave e respe
   await assert.rejects(confirmServerImport({...preview,expira_em:'2000-01-01'},'x'),/expirou/);
 });
 test('histórico de e-mails filtra CPF e reenvio conserva erros individuais',async t=>{
-  free();t.mock.method(globalThis,'fetch',async(url,opts)=>{
+  free();let retries=0;t.mock.method(globalThis,'fetch',async(url,opts)=>{
     if(url.startsWith('/api/emails?')){assert.match(url,/cpf=00123456789/);return Response.json([{id:1,id_folha:2,nome:'Ana',matricula:'0012345',cpf:'00123456789',competencia:'2026-10',status:'ERRO',criado_em:'2026-10-01T00:00:00Z',mensagem:'Teste'}]);}
+    retries++;
     assert.deepEqual(JSON.parse(opts.body),{log_ids:[1]});assert.equal(opts.headers.get('Idempotency-Key'),'retry');return Response.json({reenviados:0,ignorados:0,falhas:1});
   });
   assert.equal((await listEmailLogs({nome:'',matricula:'',cpf:'00123456789',status:'ERRO',competencia:''}))[0].status,'ERRO');
+  await assert.rejects(retryEmailErrors([],'retry'),/Nenhum erro selecionado/);assert.equal(retries,0);
   assert.equal((await retryEmailErrors([1],'retry')).falhas,1);
+  assert.equal(retries,1);
 });
 test('lease adquire, renova, libera e impede mutações de outro holder',async t=>{
   free();let holder=false;const paths=[];

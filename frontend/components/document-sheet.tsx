@@ -12,7 +12,7 @@ import { TimesheetUpload } from '@/components/timesheet-upload';
 import { useSystemLock } from '@/components/system-lock';
 import { confirmDocument, deleteDocument, listTimesheets, processDocument, fromRemoteSheet, validMonth } from '@/lib/timesheet-api';
 import { ApiError } from '@/lib/api-client';
-import { monthLabel, sheetStatus, type Professor, type Sheet } from '@/lib/ponto';
+import { monthLabel, sheetStatus, statusTone, type Professor, type Sheet } from '@/lib/ponto';
 import { toast } from 'sonner';
 type Props = { professor: Professor; professors: Professor[]; month: string; onMonth: (month: string) => void; onBack: () => void; onChange: Dispatch<SetStateAction<Professor[]>>; onLinked: (id: string, month: string) => void };
 export function DocumentSheet({ professor, professors, month, onMonth, onBack, onChange, onLinked }: Props) {
@@ -89,14 +89,14 @@ export function DocumentSheet({ professor, professors, month, onMonth, onBack, o
     <div className="page-heading"><div><p className="eyebrow">DOCUMENTO DE PONTO</p><h1>{professor.name}</h1><p>Matrícula: {professor.registration}</p></div><label className="month-control">Competência<Input type="month" min="2000-01" max="2099-12" value={month} disabled={busy} aria-label="Competência da folha" onChange={e => { if (validMonth(e.target.value)) onMonth(e.target.value); }} /></label></div>
     <MultipageCandidates professors={professors} refresh={Date.parse(sheet?.updatedAt ?? "")} onSaved={() => void refresh()} />
     {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error}</AlertDescription></Alert>}
-    <section className="table-card uploaded-sheet-card"><div className="table-toolbar"><h2>{monthLabel(month)}</h2><span role="status" className={`status-badge status-${sheet?.confirmedAt ? 'done' : sheet?.status === 'error' ? 'error' : sheet ? 'progress' : 'empty'}`}>{sheetStatus(sheet)}</span><Button variant="outline" disabled={busy} onClick={() => void refresh()}>Atualizar</Button></div>
+    <section className="table-card uploaded-sheet-card"><div className="table-toolbar"><h2>{monthLabel(month)}</h2><span role="status" className={`status-badge status-${statusTone(sheet?.status ?? 'missing')}`}>{sheetStatus(sheet)}</span><Button variant="outline" disabled={busy} onClick={() => void refresh()}>Atualizar</Button></div>
       <div className="document-body">
         <p className="email-note">O original e o histórico são consultados no servidor. Confira os dados digitais antes de validar.</p>
         {uploadOpen && <TimesheetUpload professors={professors} defaultProfessorId={professor.id} month={month} onSaved={(id, competence, value) => { onChange(ps => ps.map(p => p.id === id ? { ...p, sheets: { ...p.sheets, [competence]: value } } : p)); if (id === professor.id && competence === month) setEditing(true); }} />}
         {sheet && <><div className="uploaded-file-meta"><FileText /><div><strong>{sheet.attachment.name}</strong><span>{(sheet.attachment.size / 1024 / 1024).toFixed(2)} MB</span></div></div>
           <div className="document-actions"><Button variant="outline" onClick={() => setPreview(value => !value)}>Visualizar folha</Button><Button variant="outline" asChild><a href={sheet.attachment.url} download={sheet.attachment.name}><Download size={16} />Baixar original</a></Button><Button variant="outline" disabled={busy || blocked} onClick={() => setUploadOpen(value => !value)}>Substituir / adicionar PDFs</Button><Button variant="outline" disabled={busy || blocked} onClick={() => setRemoveOpen(true)}><Trash2 size={16} />Remover folha</Button></div>
           {preview && <div className="sheet-preview"><iframe src={sheet.attachment.url} title={`Folha: ${sheet.attachment.name}`} /></div>}
-          {sheet.error && <Alert variant="destructive"><AlertDescription>{sheet.error}</AlertDescription></Alert>}
+          {sheet.error && <Alert variant={sheet.status === 'error' ? 'destructive' : undefined}><AlertDescription>{sheet.error}</AlertDescription></Alert>}
           {!sheet.confirmedAt && <div className="document-actions"><Button disabled={busy || blocked} onClick={() => void process()}>{busy ? 'Aguarde…' : 'Processar documento'}</Button><Button variant="outline" disabled={busy || blocked} onClick={() => setEditing(true)}>Conferir manualmente</Button></div>}
           <section className="identified-panel"><h2>{sheet.confirmedAt && !editing ? 'Vínculo validado' : 'Conferência dos dados'}</h2>
             <dl><dt>Professor</dt><dd>{sheet.identifiedData?.professorName || professor.name}</dd><dt>Matrícula</dt><dd>{sheet.identifiedData?.registration || professor.registration}</dd><dt>Competência</dt><dd>{monthLabel(sheet.identifiedData?.competence || month)}</dd><dt>Arquivo</dt><dd>{sheet.attachment.name}</dd></dl>
